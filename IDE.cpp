@@ -870,7 +870,8 @@ GWEN_CONTROL_CONSTRUCTOR(UnitTest)
 		Gwen::Controls::TreeNode* pNode = ctrl->AddNode(L"../");
 		pNode->SetImage(L"test16.png");
 
-		ctrl->SetCacheToTexture();
+		
+		//ctrl->SetCacheToTexture();
 		ctrl->Dock(Pos::Fill);
 		ctrl->ExpandAll();
 
@@ -1124,18 +1125,23 @@ void UnitTest::PrintText(const Gwen::UnicodeString & str)
 	m_TextOutput->ScrollToBottom();
 }
 
+int val = 0;
 void UnitTest::Render(Gwen::Skin::Base* skin)
 {
 	m_iFrames++;
 	//show current line number of active tab, also need to figure out how to display active tab
 	if (m_fLastSecond < Gwen::Platform::GetTimeInSeconds())
 	{
-		auto editor = this->GetCurrentEditor();
-		if (editor)
-			m_StatusBar->SetText(Gwen::Utility::Format(L"\t%i fps\t\t\t\t\tLn %i\t Col %i", m_iFrames * 4, editor->GetCurrentLine() + 1, editor->GetCurrentColumn() + 1));
-		m_fLastSecond = Gwen::Platform::GetTimeInSeconds() + 0.25f;
+		val = m_iFrames;
+		m_fLastSecond = Gwen::Platform::GetTimeInSeconds() + 0.5f;
 		m_iFrames = 0;
 	}
+
+	auto editor = this->GetCurrentEditor();
+	if (editor)
+		m_StatusBar->SetText(Gwen::Utility::Format(L"\t%i fps\t\t\t\t\tLn %i\t Col %i", val*2, editor->GetCurrentLine() + 1, editor->GetCurrentColumn() + 1));
+	else
+		m_StatusBar->SetText(Gwen::Utility::Format(L"\t%i fps\t\t\t\t\tLn %i\t Col %i", val*2, 0, 0));
 
 	BaseClass::Render(skin);
 }

@@ -407,6 +407,7 @@ void TextBoxCode::OnSelectAll(Gwen::Controls::Base* /*pCtrl*/)
 
 void TextBoxCode::OnMouseDoubleClickLeft(int /*x*/, int /*y*/)
 {
+	//todo: select the whole word
 	//OnSelectAll(this);
 }
 
@@ -418,6 +419,13 @@ UnicodeString TextBoxCode::GetSelection()
 	int iEnd = Utility::Max(m_iCursorPos, m_iCursorEndPos);
 	int iStartLine = Utility::Min(m_iCursorEndLine, m_iCursorLine);
 	int iEndLine = Utility::Max(m_iCursorEndLine, m_iCursorLine);
+
+	auto line = this->m_lines.begin();
+	for (int i = 0; i < iStartLine; i++)
+		line++;
+
+	if (iStartLine == iEndLine)
+		return line->m_Unicode.substr(iStart, iEnd - iStart);
 
 	if (iStartLine == m_iCursorLine)
 	{
@@ -432,22 +440,12 @@ UnicodeString TextBoxCode::GetSelection()
 
 
 	UnicodeString str = L"";
-	//append lines
-	//finish me!
-	auto line = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorLine; i++)
-		line++;
-
-	if (iStartLine == iEndLine)
-		return line->m_Unicode.substr(iStart, iEnd - iStart);
-
 	str = line->m_Unicode.substr(iStart, line->m_Unicode.length() - iStart);
-
 	line++;
 	for (int i = iStartLine + 1; i < iEndLine; i++)
 	{
-		str.append(line->m_Unicode);
 		str.append(L"\n");
+		str.append(line->m_Unicode);
 		line++;
 	}
 	str.append(L"\n");
@@ -778,13 +776,36 @@ void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
 	int line = pos.y / this->GetFont()->size;
 	line += this->m_scroll;
-	float f_width = ((float)this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "WWWWWWWWWW").x) / 10.0f;
+	float f_width = this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "W").x;
 	int iChar = (pos.x + (m_hscroll /*- this->GetPadding().left*/)+f_width / 2) / f_width - 1;//this isnt quite right, but it works for now
 	if (iChar < 0)
 		iChar = 0;
 
 	if (line >= this->m_lines.size())
 		line = this->m_lines.size() - 1;
+
+	//ok, lets look at the line to see where we are in it
+	auto t = this->m_lines.begin();
+	for (int i = 0; i < line; i++)
+		t++;
+
+	int offset = 0;
+	for (int i = 0; i < t->m_Unicode.length(); i++)
+	{
+		WCHAR c = t->m_Unicode[i];
+		if (c == '\t')
+			offset = offset + (4 - offset % 4);//then round to the next greater 4th space
+
+		float xoff = m_hscroll + offset++*f_width;
+		if (xoff > pos.x + f_width / 2)
+		{
+			iChar = i-1;// offset - 1;
+			break;
+		}
+	}
+	if (iChar < 0)
+		iChar = 0;
+
 
 	//make it so people can add breakpoints then call
 	//but dont add the breakpoint icon here, let our parent do that after the command completes
@@ -837,6 +858,28 @@ void TextBoxCode::OnMouseMoved(int x, int y, int /*deltaX*/, int /*deltaY*/)
 	if (iChar < 0)
 		iChar = 0;
 	//meh, lets assume fixed 
+
+	//ok, lets look at the line to see where we are in it
+	auto t = this->m_lines.begin();
+	for (int i = 0; i < line; i++)
+		t++;
+
+	int offset = 0;
+	for (int i = 0; i < t->m_Unicode.length(); i++)
+	{
+		WCHAR c = t->m_Unicode[i];
+		if (c == '\t')
+			offset = offset + (4 - offset % 4);//then round to the next greater 4th space
+
+		float xoff = m_hscroll + offset++*f_width;
+		if (xoff > pos.x + f_width / 2)
+		{
+			iChar = i - 1;// offset - 1;
+			break;
+		}
+	}
+	if (iChar < 0)
+		iChar = 0;
 
 	if (line > this->m_lines.size())
 		this->m_iCursorLine = this->m_lines.size() - 1;
@@ -972,7 +1015,7 @@ std::wregex comment(L"\\/{2}.*");
 
 std::map<WCHAR, std::vector<std::wstring>> keywords = {
 	{ 'f', { L"for", L"fun" } },
-	{ 'i', { L"if" } }, 
+	{ 'i', { L"if" } },
 	{ 'd', { L"do", L"default" } },
 	{ 'l', { L"let" } },
 	{ 's', { L"struct" } },
@@ -1043,6 +1086,19 @@ void TextBoxCode::Render(Skin::Base* skin)
 				//Gwen::Rect pos = GetCharacterPosition(iSelectionStartPos);
 				//m_rectSelectionBounds.x = pos.x;
 				//m_rectSelectionBounds.y = pos.y - 1;
+				auto t = this->m_lines.begin();
+				for (int i = 0; i < iSelectionStartLine; i++)
+					t++;
+
+				int off = 0;
+				for (int i = 0; i < iSelectionStartPos; i++)
+				{
+					if (t->m_Unicode[i] == '\t')
+						off = off + (4 - off % 4);
+					off += 1;
+				}
+				off -= 1;
+				box.x = off*f_width;// -box.x;
 			}
 			else
 			{
@@ -1051,12 +1107,25 @@ void TextBoxCode::Render(Skin::Base* skin)
 				box.x = 0;// 4 + hoffset;
 				//box.y 
 			}
-
+			//would also be good to update this outside of rendering, but whatever
+			//todo: abstract the get text position at point function out then need to do a measure here
 			if (iLine == iSelectionEndLine)
 			{
 				//Gwen::Rect pos = GetCharacterPosition(iSelectionEndPos);
 				//m_rectSelectionBounds.w = pos.x - m_rectSelectionBounds.x;
-				box.w = iSelectionEndPos*f_width - box.x;
+				auto t = this->m_lines.begin();
+				for (int i = 0; i < iSelectionEndLine; i++)
+					t++;
+
+				int off = 0;
+				for (int i = 0; i < iSelectionEndPos; i++)
+				{
+					if (t->m_Unicode[i] == '\t')
+						off = off + (4 - off % 4);
+					off += 1;
+				}
+				off -= 1;
+				box.w = off*f_width - box.x;
 			}
 			else
 			{
@@ -1213,7 +1282,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 								for (int p = i; p < i + kw.length(); p++)
 									line_iterator->styles[p] = Styles::Keyword;
 
-								i += kw.length()-1;
+								i += kw.length() - 1;
 								break;
 							}
 						}

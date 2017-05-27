@@ -6,7 +6,7 @@
 
 #pragma once
 #ifndef GWEN_CONTROLS_TEXTBOX_H
-#define GWEN_CONTROLS_TEXTBOX_H
+#define GWEN_CONTROLS_TEXTOX_H
 
 #include "Gwen/BaseRender.h"
 #include "Gwen/Controls/Base.h"
