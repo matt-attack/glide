@@ -75,7 +75,6 @@ GWEN_CONTROL_CONSTRUCTOR(TextBoxCode)
 	this->icon_font.size = 18;
 
 	//use this
-	//todo: make this work
 	auto menu = new Gwen::Controls::Menu(this);
 	menu->AddItem("Cut")->SetAction(this, &ThisClass::onMenuItemSelect);
 	menu->AddItem("Copy")->SetAction(this, &ThisClass::onMenuItemSelect);
@@ -108,6 +107,12 @@ void TextBoxCode::OnUndo(Gwen::Controls::Base*)
 	else
 	{
 		//add
+		auto oldcp = this->m_iCursorPos;
+		auto oldcl = this->m_iCursorLine;
+
+		this->m_iCursorLine = this->m_iCursorEndLine = action.line;
+		this->m_iCursorPos = this->m_iCursorPos = action.pos;
+		this->InsertText(action.text);
 	}
 	this->action_list.pop_back();
 }
@@ -218,7 +223,8 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 				n.m_Unicode = rest;
 				n.dirty = true;
 				n.is_comment = t->is_comment;
-				m_lines.insert(++t, n);
+				t = m_lines.insert(t, n);
+				m_iCursorPos = 0;
 			}
 			else
 			{
@@ -236,11 +242,9 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 		}
 	}
 
-	//todo, handle lines
-	//m_iCursorPos += (int)strInsert.size();
 	m_iCursorEndPos = m_iCursorPos;
 	m_iCursorEndLine = m_iCursorLine;
-	//m_iCursorLine = 0;
+	
 	RefreshCursorBounds();
 }
 
@@ -337,7 +341,7 @@ void TextBoxCode::RefreshCursorBounds()
 	//else
 	//m_hbar->Show();
 
-	//todo, implement close and save
+	
 	m_vbar->SetContentSize(this->m_lines.size());
 	m_hbar->SetContentSize(text_width);
 
@@ -378,6 +382,7 @@ void TextBoxCode::OnPaste(Gwen::Controls::Base* /*pCtrl*/)
 
 	this->AddUndoableAction({ this->m_iCursorLine, this->m_iCursorPos, text.length(), text });
 
+	//todo: remove all /r
 	InsertText(text);
 }
 
@@ -439,8 +444,7 @@ UnicodeString TextBoxCode::GetSelection()
 	}
 
 
-	UnicodeString str = L"";
-	str = line->m_Unicode.substr(iStart, line->m_Unicode.length() - iStart);
+	UnicodeString str = line->m_Unicode.substr(iStart, line->m_Unicode.length() - iStart);
 	line++;
 	for (int i = iStartLine + 1; i < iEndLine; i++)
 	{
@@ -450,7 +454,7 @@ UnicodeString TextBoxCode::GetSelection()
 	}
 	str.append(L"\n");
 	str.append(line->m_Unicode.substr(0, iEnd));
-	return str;// str.substr(iStart, iEnd - iStart);
+	return str;
 }
 
 bool TextBoxCode::OnKeyBackspace(bool bDown)
@@ -489,7 +493,12 @@ bool TextBoxCode::OnKeyBackspace(bool bDown)
 			DeleteText(m_iCursorPos - p, m_iCursorLine, p);
 	}
 	else
+	{
+		//todo actually get this right
+		//	have delete text return the deleted string?
+		this->AddUndoableAction({ m_iCursorLine, m_iCursorPos, -1, L"a" });
 		DeleteText(m_iCursorPos - 1, m_iCursorLine, 1);
+	}
 	return true;
 }
 
@@ -536,11 +545,16 @@ bool TextBoxCode::OnKeyLeft(bool bDown)
 	{
 		m_iCursorPos--;
 	}
-	else
+	else if (m_iCursorLine != 0)
 	{
-		//todo go to previous line
+		auto line = this->m_lines.begin();
+		for (int i = 0; i < m_iCursorLine-1; i++)
+			line++;
+		m_iCursorLine -= 1;
+		m_iCursorPos = line->m_Unicode.length();
 	}
 
+	//implement control left and right
 	if (!Gwen::Input::IsShiftDown())
 	{
 		m_iCursorEndPos = m_iCursorPos;
@@ -854,10 +868,12 @@ void TextBoxCode::OnMouseMoved(int x, int y, int /*deltaX*/, int /*deltaY*/)
 	int line = pos.y / this->GetFont()->size;
 	line += this->m_scroll;
 	float f_width = ((float)this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "WWWWWWWWWW").x) / 10.0f;
-	int iChar = (pos.x + (m_hscroll /*- this->GetPadding().left*/)+f_width / 2) / f_width - 1;//this isnt quite right, but it works for now
-	if (iChar < 0)
-		iChar = 0;
+	int iChar = 0;
 	//meh, lets assume fixed 
+	if (line > this->m_lines.size())
+		this->m_iCursorLine = this->m_lines.size() - 1;
+	else
+		this->m_iCursorLine = line;
 
 	//ok, lets look at the line to see where we are in it
 	auto t = this->m_lines.begin();
@@ -881,10 +897,7 @@ void TextBoxCode::OnMouseMoved(int x, int y, int /*deltaX*/, int /*deltaY*/)
 	if (iChar < 0)
 		iChar = 0;
 
-	if (line > this->m_lines.size())
-		this->m_iCursorLine = this->m_lines.size() - 1;
-	else
-		this->m_iCursorLine = line;
+	
 	SetCursorPos(this->m_iCursorLine, iChar);
 	//int iChar = m_Text->GetClosestCharacter(m_Text->CanvasPosToLocal(Gwen::Point(x, y)));
 	//SetCursorPos(iChar);
@@ -980,6 +993,10 @@ void TextBoxCode::SetText(const char* text, unsigned int len)
 		{
 			this->m_lines.push_back(Line());
 		}
+		else if (*ptr == '\r')
+		{
+
+		}
 		else
 		{
 			this->m_lines.back().m_Unicode.push_back(*ptr);
@@ -1020,8 +1037,9 @@ std::map<WCHAR, std::vector<std::wstring>> keywords = {
 	{ 'l', { L"let" } },
 	{ 's', { L"struct" } },
 	{ 'w', { L"while" } },
+	{ 'n', { L"namespace" } },
 	{ 'e', { L"extern", L"else" } },
-	{ 't', { L"this", L"typedef" } },
+	{ 't', { L"this", L"typedef", L"trait" } },
 	{ 'r', { L"return" } }
 };
 
@@ -1031,15 +1049,6 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 	//if (!HasFocus()) return;
 
-	//render me
-	//if (m_ColorOverride.a == 0)
-	{
-		//skin->GetRender()->SetDrawColor(Gwen::Color(255,0,0,255));
-	}
-	//else
-	{
-		//skin->GetRender()->SetDrawColor(m_ColorOverride);
-	}
 	float fsize = this->GetFont()->size;
 
 	float hoffset = this->GetSidebarWidth();
@@ -1074,8 +1083,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 		for (int iLine = iSelectionStartLine; iLine <= iSelectionEndLine; ++iLine)
 		{
-			ControlsInternal::Text* line = m_Text->GetLine(iLine);
-			Gwen::Rect box = m_Text->GetLineBox(iLine);//fix this
+			Gwen::Rect box;
 			box.w = this->Width();
 			box.h = fsize;
 			box.x = iSelectionStartPos*f_width;
@@ -1083,9 +1091,6 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 			if (iLine == iSelectionStartLine)
 			{
-				//Gwen::Rect pos = GetCharacterPosition(iSelectionStartPos);
-				//m_rectSelectionBounds.x = pos.x;
-				//m_rectSelectionBounds.y = pos.y - 1;
 				auto t = this->m_lines.begin();
 				for (int i = 0; i < iSelectionStartLine; i++)
 					t++;
@@ -1095,10 +1100,10 @@ void TextBoxCode::Render(Skin::Base* skin)
 				{
 					if (t->m_Unicode[i] == '\t')
 						off = off + (4 - off % 4);
+					else
 					off += 1;
 				}
-				off -= 1;
-				box.x = off*f_width;// -box.x;
+				box.x = off*f_width;
 			}
 			else
 			{
@@ -1111,8 +1116,6 @@ void TextBoxCode::Render(Skin::Base* skin)
 			//todo: abstract the get text position at point function out then need to do a measure here
 			if (iLine == iSelectionEndLine)
 			{
-				//Gwen::Rect pos = GetCharacterPosition(iSelectionEndPos);
-				//m_rectSelectionBounds.w = pos.x - m_rectSelectionBounds.x;
 				auto t = this->m_lines.begin();
 				for (int i = 0; i < iSelectionEndLine; i++)
 					t++;
@@ -1122,9 +1125,9 @@ void TextBoxCode::Render(Skin::Base* skin)
 				{
 					if (t->m_Unicode[i] == '\t')
 						off = off + (4 - off % 4);
+					else
 					off += 1;
 				}
-				off -= 1;
 				box.w = off*f_width - box.x;
 			}
 			else
@@ -1136,7 +1139,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 			{
 			m_rectSelectionBounds.w = 1;
 			}*/
-
+			
 			box.x += 4 + hoffset;// m_Text->X();
 			box.y += m_Text->Y();
 
@@ -1405,10 +1408,9 @@ void TextBoxCode::Render(Skin::Base* skin)
 		skin->GetRender()->RenderText(&this->icon_font, Gwen::PointF(hoffset - bp_bar_size - 1, (line - m_scroll)*fsize - 2), L"\u27A5");//\u21e8");
 	}
 
+	//draw breakpoints
 	if (this->breakpoints)
 	{
-		//draw breakpoints
-
 		for (int i = 0; i < this->breakpoints->size(); i++)
 		{
 			if (this->breakpoints->at(i).file != this->filename)
@@ -1424,18 +1426,14 @@ void TextBoxCode::Render(Skin::Base* skin)
 		}
 	}
 
-	skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));
-
+	
 
 	//draw line numbers
+	skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));
+
 	pos = 0;
 	for (int i = m_scroll; i < Min<int>(m_scroll + numbers2draw, this->m_lines.size()); i++)
-	{
-		skin->GetRender()->RenderText(GetFont(), Gwen::PointF(4, 2 + pos*fsize), std::to_string(i + 1));// m_String.GetUnicode());
-		//also render breakpoints
-
-		pos++;
-	}
+		skin->GetRender()->RenderText(GetFont(), Gwen::PointF(4, 2 + pos++*fsize), std::to_string(i + 1));// m_String.GetUnicode());
 }
 
 void TextBoxCode::MakeCaratVisible()
@@ -1559,18 +1557,22 @@ bool TextBoxCode::OnKeyEnd(bool bDown)
 		return true;
 	}
 
+	//auto t = this->m_lines.begin();
+	//for (int i = 0; i < line; i++)
+	//	t++;
+
 	//also implement me
 	int iCurrentLine = GetCurrentLine();
-	int iChar = m_Text->GetEndCharFromLine(iCurrentLine);
-	m_iCursorLine = 0;
+	int iChar = 1000000;// m_Text->GetEndCharFromLine(iCurrentLine);
+	//m_iCursorLine = 0;
 	m_iCursorPos = iChar;
 
 	int iLastLine = m_Text->NumLines() - 1;
 
-	if (iCurrentLine < iLastLine && iChar > 0)
-		m_iCursorPos = iChar - 1; // NAUGHTY
-	else
-		m_iCursorPos = m_Text->Length();
+	//if (iCurrentLine < iLastLine && iChar > 0)
+	//	m_iCursorPos = iChar - 1; // NAUGHTY
+	//else
+	//	m_iCursorPos = m_Text->Length();
 
 	if (!Gwen::Input::IsShiftDown())
 	{
