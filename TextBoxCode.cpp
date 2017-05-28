@@ -235,6 +235,10 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 
 			m_iCursorPos = 0;
 		}
+		else if (strInsert[i] == '\r')
+		{
+
+		}
 		else
 		{
 			t->m_Unicode.insert(m_iCursorPos++, strInsert.substr(i, 1));
@@ -244,7 +248,7 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 
 	m_iCursorEndPos = m_iCursorPos;
 	m_iCursorEndLine = m_iCursorLine;
-	
+
 	RefreshCursorBounds();
 }
 
@@ -341,7 +345,7 @@ void TextBoxCode::RefreshCursorBounds()
 	//else
 	//m_hbar->Show();
 
-	
+
 	m_vbar->SetContentSize(this->m_lines.size());
 	m_hbar->SetContentSize(text_width);
 
@@ -548,7 +552,7 @@ bool TextBoxCode::OnKeyLeft(bool bDown)
 	else if (m_iCursorLine != 0)
 	{
 		auto line = this->m_lines.begin();
-		for (int i = 0; i < m_iCursorLine-1; i++)
+		for (int i = 0; i < m_iCursorLine - 1; i++)
 			line++;
 		m_iCursorLine -= 1;
 		m_iCursorPos = line->m_Unicode.length();
@@ -791,9 +795,7 @@ void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 	int line = pos.y / this->GetFont()->size;
 	line += this->m_scroll;
 	float f_width = this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "W").x;
-	int iChar = (pos.x + (m_hscroll /*- this->GetPadding().left*/)+f_width / 2) / f_width - 1;//this isnt quite right, but it works for now
-	if (iChar < 0)
-		iChar = 0;
+	int iChar = 0;
 
 	if (line >= this->m_lines.size())
 		line = this->m_lines.size() - 1;
@@ -811,11 +813,16 @@ void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 			offset = offset + (4 - offset % 4);//then round to the next greater 4th space
 
 		float xoff = m_hscroll + offset++*f_width;
-		if (xoff > pos.x + f_width / 2)
+		if (xoff > pos.x + f_width / 4)
 		{
-			iChar = i-1;// offset - 1;
+			iChar = i - 1;// offset - 1;
 			break;
 		}
+		else if (i == t->m_Unicode.length() - 1)
+			if (xoff + f_width > pos.x + f_width / 4)
+				iChar = i;
+			else
+				iChar = i + 1;
 	}
 	if (iChar < 0)
 		iChar = 0;
@@ -867,17 +874,17 @@ void TextBoxCode::OnMouseMoved(int x, int y, int /*deltaX*/, int /*deltaY*/)
 	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
 	int line = pos.y / this->GetFont()->size;
 	line += this->m_scroll;
-	float f_width = ((float)this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "WWWWWWWWWW").x) / 10.0f;
+	float f_width = ((float)this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "W").x) / 1.0f;
 	int iChar = 0;
 	//meh, lets assume fixed 
-	if (line > this->m_lines.size())
+	if (line >= this->m_lines.size())
 		this->m_iCursorLine = this->m_lines.size() - 1;
 	else
 		this->m_iCursorLine = line;
 
 	//ok, lets look at the line to see where we are in it
 	auto t = this->m_lines.begin();
-	for (int i = 0; i < line; i++)
+	for (int i = 0; i < m_iCursorLine; i++)
 		t++;
 
 	int offset = 0;
@@ -888,16 +895,21 @@ void TextBoxCode::OnMouseMoved(int x, int y, int /*deltaX*/, int /*deltaY*/)
 			offset = offset + (4 - offset % 4);//then round to the next greater 4th space
 
 		float xoff = m_hscroll + offset++*f_width;
-		if (xoff > pos.x + f_width / 2)
+		if (xoff > pos.x + f_width / 4)
 		{
 			iChar = i - 1;// offset - 1;
 			break;
 		}
+		else if (i == t->m_Unicode.length() - 1)
+			if (xoff + f_width > pos.x + f_width / 4)
+				iChar = i;
+			else
+				iChar = i + 1;
 	}
 	if (iChar < 0)
 		iChar = 0;
 
-	
+
 	SetCursorPos(this->m_iCursorLine, iChar);
 	//int iChar = m_Text->GetClosestCharacter(m_Text->CanvasPosToLocal(Gwen::Point(x, y)));
 	//SetCursorPos(iChar);
@@ -1035,8 +1047,12 @@ std::map<WCHAR, std::vector<std::wstring>> keywords = {
 	{ 'i', { L"if" } },
 	{ 'd', { L"do", L"default" } },
 	{ 'l', { L"let" } },
+	{ 'm', { L"match" } },
 	{ 's', { L"struct" } },
+	{ 'c', { L"continue" } },
+	{ 'b', { L"break" } },
 	{ 'w', { L"while" } },
+	{ 'u', { L"union" } },
 	{ 'n', { L"namespace" } },
 	{ 'e', { L"extern", L"else" } },
 	{ 't', { L"this", L"typedef", L"trait" } },
@@ -1101,7 +1117,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 					if (t->m_Unicode[i] == '\t')
 						off = off + (4 - off % 4);
 					else
-					off += 1;
+						off += 1;
 				}
 				box.x = off*f_width;
 			}
@@ -1126,7 +1142,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 					if (t->m_Unicode[i] == '\t')
 						off = off + (4 - off % 4);
 					else
-					off += 1;
+						off += 1;
 				}
 				box.w = off*f_width - box.x;
 			}
@@ -1139,7 +1155,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 			{
 			m_rectSelectionBounds.w = 1;
 			}*/
-			
+
 			box.x += 4 + hoffset;// m_Text->X();
 			box.y += m_Text->Y();
 
@@ -1398,16 +1414,6 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 	//draw breakpoints and the like
 	skin->GetRender()->SetDrawColor(Gwen::Color(255, 0, 0, 255));
-	for (int i = 0; i < this->line_indicators.size(); i++)
-	{
-		int line = line_indicators[i].line;
-
-		//if (line_indicators[i].type == 1)
-		//	skin->GetRender()->RenderText(&this->icon_font, Gwen::Point(hoffset - bp_bar_size - 1, (line - m_scroll)*fsize - 2), L"\u270B");//\u21e8");
-		//else
-		skin->GetRender()->RenderText(&this->icon_font, Gwen::PointF(hoffset - bp_bar_size - 1, (line - m_scroll)*fsize - 2), L"\u27A5");//\u21e8");
-	}
-
 	//draw breakpoints
 	if (this->breakpoints)
 	{
@@ -1426,7 +1432,18 @@ void TextBoxCode::Render(Skin::Base* skin)
 		}
 	}
 
-	
+	//draw breakpoints and the like
+	skin->GetRender()->SetDrawColor(Gwen::Color(255, 255, 255, 255));
+	for (int i = 0; i < this->line_indicators.size(); i++)
+	{
+		int line = line_indicators[i].line;
+
+		//if (line_indicators[i].type == 1)
+		//	skin->GetRender()->RenderText(&this->icon_font, Gwen::Point(hoffset - bp_bar_size - 1, (line - m_scroll)*fsize - 2), L"\u270B");//\u21e8");
+		//else
+		skin->GetRender()->RenderText(&this->icon_font, Gwen::PointF(hoffset - bp_bar_size - 1, (line - m_scroll)*fsize - 2), L"\u27A5");//\u21e8");
+	}
+
 
 	//draw line numbers
 	skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));

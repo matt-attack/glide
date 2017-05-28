@@ -65,13 +65,15 @@ void find_files(LPCWSTR path, Gwen::Controls::TreeNode* parent, UnitTest* root){
 				continue;
 
 			auto node = parent->AddNode(FindFileData.cFileName);
+			node->UserData.Set<std::wstring>("path", spath + L"\\" + FindFileData.cFileName);
+
 			//node->SetToolTip(spath + L"/" + FindFileData.cFileName);
 
 			node->onDoubleClick.Add(root, &UnitTest::OnFileTreePress);
 			if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 			{
 				//loop
-				find_files((spath + L"/" + FindFileData.cFileName).c_str(), node, root);
+				find_files((spath + L"\\" + FindFileData.cFileName).c_str(), node, root);
 				node->SetImage(L"icons/folder.png");
 				//let clicking open the file
 			}
@@ -86,7 +88,7 @@ void UnitTest::OnFolderOpen(Gwen::Event::Info info)
 {
 	Gwen::Controls::TreeNode* pNode = file_list->AddNode(info.String);
 	pNode->SetImage(L"icons/folder.png");
-
+	//pNode->setp
 	find_files(info.String.GetUnicode().c_str(), pNode, this);
 }
 
@@ -579,6 +581,133 @@ void UnitTest::MenuItemSelect(Controls::Base* pControl)
 	//UnitPrint(Utility::Forma(L"Menu Selected: %ls", pMenuItem->GetText().GetUnicode().c_str()));
 }
 
+#include <algorithm>
+class GdbNode
+{
+public:
+	~GdbNode()
+	{
+		for (auto ii : children)
+			delete ii.second;
+	}
+	bool is_value = false;
+	std::string value;
+
+	std::map<std::string, GdbNode*> children;
+};
+
+const char* ParseGdb(const char* str, GdbNode* node)
+{
+	//eat whitespace
+	while (*str == ' ')
+		str++;
+
+	if (*str == '[')
+	{
+		str++;
+		if (*str == ']')
+		{
+			str++;
+			return str;
+		}
+
+		//parse an array out
+		int num = 0;
+		while (1)
+		{
+			//eat whitespace
+			while (*str == ' ')
+				str++;
+
+			GdbNode* nn = new GdbNode;
+			node->children[std::to_string(num++)] = nn;
+			str = ParseGdb(str, nn);
+
+			//eat the comma
+			if (*str == ',')
+			{
+				str++;
+				continue;
+			}
+			break;
+		}
+		if (*str == ']')
+			str++;
+	}
+	else if (*str == '{')
+	{
+		str++;
+		//parse an object
+		while (1)
+		{
+			//eat whitespace
+			while (*str == ' ')
+				str++;
+
+			//read in the key
+			std::string key;
+			while (*str != ' ' && *str != '=')
+				key += *str++;
+
+			printf("hi");
+
+			while (*str == ' ')
+				str++;
+			
+			str++;//eat equals sign
+
+			while (*str == ' ')
+				str++;
+
+			//start reading value
+
+			GdbNode* nn = new GdbNode;
+			node->children[key] = nn;
+			str = ParseGdb(str, nn);
+
+			if (*str == ',')
+			{
+				str++;
+				continue;
+			}
+			break;
+		}
+		if (*str == '}')
+			str++;
+	}
+	else if (*str == '"')
+	{
+		str++;
+		node->is_value = true;
+		//its a string read it in
+		while (1)
+		{
+			if (*str == '"')
+				break;
+			if (*str == '\\' && *(str + 1) == '"')
+			{
+				node->value += "\"";
+				str += 2;
+				continue;
+			}
+			node->value += *str++;
+		}
+		str++;
+		printf("");
+	}
+	else
+	{
+		//its something else, just read until we hit a delimiter
+		node->is_value = true;
+		//its a string read it in
+		while (*str != '{' && *str != ',' && *str != '}' && *str != ']')
+		{
+			node->value += *str++;
+		}
+		printf("");
+	}
+	return str;
+}
 void UnitTest::Layout(Skin::Base* skin)
 {
 	//process debug updates
@@ -627,27 +756,39 @@ void UnitTest::Layout(Skin::Base* skin)
 				//todo, need to check stopped reason
 				//we stopped, enable continue and disable pause
 				//this->m_menu->get
+				//~"0x77407c04 in KERNEL32!BaseThreadInitThunk () from C:\\Windows\\SysWOW64\\kernel32.dll\n"
+				//*stopped, frame = { addr = "0x77407c04", func = "KERNEL32!BaseThreadInitThunk", args = [], from = "C:\\Windows\\SysWOW64\\kernel32.dll" }, thread - id = "1", stopped - threads = "all"
 
 				int pos = ii.find("fullname=\"");
+				if (pos == -1)
+				{
+					//todo actually handle it ok, todo handle when we dont have a fullname because its some random function like above
+					std::string command = "-stack-list-locals 1\n-stack-list-frames\n-break-list\n";
+					WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
+					continue;
+				}
 				std::string sub = ii.substr(pos + 10, ii.find("\"", pos + 10) - pos - 10);
 
 				pos = ii.find("line=\"");
 				std::string linesub = ii.substr(pos + 6, ii.find("\"", pos + 6) - pos - 6);
 
 				auto tab = this->OpenTab(sub, false);
-				int line = std::stoi(linesub) - 1;
-				tab->SetCursorPos(line, 0);
-				tab->SetCursorEnd(line, 0);
-				tab->GoToLine(line-5);
-				tab->RefreshCursorBounds();
+				if (tab)
+				{
+					int line = std::stoi(linesub) - 1;
+					tab->SetCursorPos(line, 0);
+					tab->SetCursorEnd(line, 0);
+					tab->GoToLine(line - 5);
+					tab->RefreshCursorBounds();
 
-				//move scroll to put it on the screen
+					//move scroll to put it on the screen
 
-				tab->Invalidate();
-				tab->Redraw();
+					tab->Invalidate();
+					tab->Redraw();
 
-				//todo, mark this line
-				tab->line_indicators.push_back({ line, 0 });
+					//todo, mark this line
+					tab->line_indicators.push_back({ line, 0 });
+				}
 
 				std::string command = "-stack-list-locals 1\n-stack-list-frames\n-break-list\n";
 				WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
@@ -658,8 +799,34 @@ void UnitTest::Layout(Skin::Base* skin)
 				if (ii.substr(1, 11) == "done,locals")
 				{
 					this->m_locals->Clear();
+
+					GdbNode start;
+					auto str = ii.substr(13);
+					ParseGdb(str.c_str(), &start);
+
+					for (auto ii : start.children)
+					{
+						//for each var parse out the value
+						GdbNode value;
+						ParseGdb(ii.second->children["value"]->value.c_str(), &value);
+						printf("");
+
+						if (ii.second->children["value"]->value[1] == '<')
+						{
+							this->m_locals->Add(ii.second->children["name"]->value, "<No Debug Info>");
+							continue;
+						}
+
+						for (auto pp : value.children)
+							this->m_locals->Add(ii.second->children["name"]->value+"."+pp.first, pp.second->value);
+
+						if (value.children.size() == 0)
+							this->m_locals->Add(ii.second->children["name"]->value, ii.second->children["value"]->value);
+					}
+
+					printf("");
 					int pos = 0;
-					while (true)
+					/*while (true)
 					{
 						pos = ii.find("name=\"", pos);
 						if (pos <= 0)
@@ -671,7 +838,7 @@ void UnitTest::Layout(Skin::Base* skin)
 						std::string valuesub = ii.substr(pos + 7, ii.find("\"", pos + 7) - pos - 7);
 						//todo actually parse it here
 						this->m_locals->Add(sub, valuesub);
-					}
+					}*/
 				}
 				else if (ii.substr(1, 4) == "exit")
 				{
@@ -770,8 +937,6 @@ void UnitTest::Layout(Skin::Base* skin)
 			//clear to get rid of a breakpoint
 			//-stack-list-locals 1 lists the locals and values
 			//-gdb-exit quits immediately
-
-			//todo add debug buttons for continue and pause
 		}
 	}
 
@@ -785,6 +950,8 @@ void UnitTest::Layout(Skin::Base* skin)
 	{
 		for (auto ii : output_to_add)
 		{
+			//todo: parse it here for error info
+			std::replace(ii.begin(), ii.end(), '\r', ' ');
 			this->PrintText(Gwen::Utility::StringToUnicode(ii));
 		}
 	}
@@ -799,22 +966,41 @@ void UnitTest::Layout(Skin::Base* skin)
 void UnitTest::OnFileTreePress(Gwen::Controls::Base* pControl)
 {
 	Gwen::Controls::TreeNode* node = static_cast<Gwen::Controls::TreeNode*>(pControl);
-	std::string file = node->GetText().Get();
+	/*std::string file = node->GetText().Get();
 	while ((node = gwen_cast<Gwen::Controls::TreeNode>(node->GetParent())))
 	{
 		if (gwen_cast<Gwen::Controls::TreeControl>(node))
 			break;
-		file = node->GetText().Get() + "/" + file;
-	}
+		file = node->UserData.Get<std::string>("path") + "/" + file;
+	}*/
+	if (node->UserData.Exists("path") == false)
+		return;
 
-	this->OpenTab(file, false);
+	std::wstring file = node->UserData.Get<std::wstring>("path");
+	this->OpenTab(Gwen::Utility::UnicodeToString(file), false);
 
 	return;
 }
 
-
 GWEN_CONTROL_CONSTRUCTOR(UnitTest)
 {
+
+	//parsing practive
+	//ok [ ] indicates array
+	// { } indicates struct
+	std::string str = "[{name = \"x\", value = \"{data = 0x6d8b5c \\\"new\\\", max_size = 4, cur_size = 4, __vtable = 0x402050 <__string_vtable>, __vtable = 0x0}\"},"
+		"{ name = \"y\", value = \"{data = 0x6da334 \\\"new\\\", max_size = 4, cur_size = 4, __vtable = 0x402050 <__string_vtable>, __vtable = 0x0}\" }]";
+	str = "[{name = \"x\",value=\"{data = 0x6b8b5c \\\"new\\\", max_size = 4, cur_size = 4, __vtable = 0x402050 <__string_vtable>, __vtable = 0x0}\"},{name=\"y\",value=\"{data = 0x6ba2ec \\\"\\\", max_size = 4, cur_size = 1}]";
+	GdbNode start;
+	ParseGdb(str.c_str(), &start);
+
+	for (auto ii : start.children)
+	{
+		//for each var parse out the value
+		GdbNode value;
+		ParseGdb(ii.second->children["value"]->value.c_str(), &value);
+		printf("");
+	}
 	m_pLastControl = NULL;
 	Dock(Pos::Fill);
 	SetSize(1024, 768);
@@ -869,6 +1055,14 @@ GWEN_CONTROL_CONSTRUCTOR(UnitTest)
 		Gwen::Controls::TreeControl* ctrl = new Gwen::Controls::TreeControl(this);
 		Gwen::Controls::TreeNode* pNode = ctrl->AddNode(L"../");
 		pNode->SetImage(L"test16.png");
+		pNode->UserData.Set<std::string>("path", "../");
+
+		//todo ok, instead of just format types need to store token types(kinda currently am so no big deal here)
+			//then with that can provide hover data as well as auto suggest
+
+			//so that means I need to completely tokenize :S
+
+			//todo also need to add error parsing from compiler output
 
 		
 		//ctrl->SetCacheToTexture();
