@@ -1056,8 +1056,11 @@ std::map<WCHAR, std::vector<std::wstring>> keywords = {
 	{ 'n', { L"namespace" } },
 	{ 'e', { L"extern", L"else" } },
 	{ 't', { L"this", L"typedef", L"trait" } },
-	{ 'r', { L"return" } }
+	{ 'r', { L"return" } },
+	{ '#', { L"#include", L"#define" } }
 };
+
+extern std::string ToLower(const std::string& str);
 
 void TextBoxCode::Render(Skin::Base* skin)
 {
@@ -1326,6 +1329,11 @@ void TextBoxCode::Render(Skin::Base* skin)
 					line_iterator->styles[i] = Styles::String;
 					i++;
 				}
+				else if (c == '\\' && i + 1 < line_iterator->m_Unicode.length() && line_iterator->m_Unicode[i + 1] == '\\')
+				{
+					line_iterator->styles[i] = Styles::String;
+					i++;
+				}
 				else if (c == '"')
 				{
 					in_string = !in_string;
@@ -1419,16 +1427,17 @@ void TextBoxCode::Render(Skin::Base* skin)
 	{
 		for (int i = 0; i < this->breakpoints->size(); i++)
 		{
-			if (this->breakpoints->at(i).file != this->filename)
+			//check if its in range
+			if (this->breakpoints->at(i).line < m_scroll || this->breakpoints->at(i).line > Min<int>(m_scroll + numbers2draw, this->m_lines.size()))
+				continue;
+
+			if (ToLower(this->breakpoints->at(i).file) != ToLower(this->filename))
 				continue;
 
 			int line = this->breakpoints->at(i).line - 1;
 			skin->GetRender()->SetDrawColor(Gwen::Color(255, 0, 0, 255));
 
-			//if (line_indicators[i].type == 1)
 			skin->GetRender()->RenderText(&this->icon_font, Gwen::PointF(hoffset - bp_bar_size - 1, (line - m_scroll)*fsize - 2), L"\u270B");//\u21e8");
-			//else
-			//skin->GetRender()->RenderText(&this->icon_font, Gwen::Point(hoffset - bp_bar_size - 1, (line - m_scroll)*fsize - 2), L"\u27A5");//\u21e8");
 		}
 	}
 

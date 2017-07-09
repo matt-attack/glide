@@ -12,8 +12,8 @@
 #include "Gwen/Skins/Simple.h"
 #include "Gwen/Skins/TexturedBase.h"
 #include "Gwen/Input/Windows.h"
-//#include "Gwen/Renderers/DirectX9.h"
 
+//#include "Gwen/Renderers/DirectX9.h"
 //#include "Gwen/Renderers/OpenGL_DebugFont.h"
 #include "Gwen/Renderers/Direct2D.h"
 
@@ -23,6 +23,7 @@
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "Shcore.lib")
 //
 // Program starts here
 //
@@ -41,6 +42,7 @@ int main(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCm
 	// window - so we don't have to bother with all that crap.
 	//
 	//
+	
 	Gwen::Controls::WindowCanvas window_canvas(-1, -1, 700.0f, 500.0f, &skin, "The Return of the Ded-eye");
 	window_canvas.SetSizable(true);
 	//window_canvas.SetScale(1.5);

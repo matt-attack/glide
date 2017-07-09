@@ -263,12 +263,12 @@ void UnitTest::MenuItemSelect(Controls::Base* pControl)
 
 		if (page)
 		{
-			Gwen::Dialogs::FileSave(true, page->filename, String(""), String(".h|.hpp|.c|.cpp"), this, &ThisClass::OnFileSave);
+			Gwen::Dialogs::FileSave(true, page->filename, String(""), String(".h|*.h|.hpp|*.hpp|.c|*.c|.cpp|*.cpp|All|*.*"), this, &ThisClass::OnFileSave);
 		}
 	}
 	else if (pMenuItem->GetText() == L"Open")
 	{
-		Gwen::Dialogs::FileOpen(true, String("Hi"), String(""), String(".h"), this, &ThisClass::OnFileOpen);
+		Gwen::Dialogs::FileOpen(true, String("Hi"), String(""), String("All|*.*|.h|*.h"), this, &ThisClass::OnFileOpen);
 	}
 	else if (pMenuItem->GetText() == L"Open Folder")
 	{
@@ -276,7 +276,7 @@ void UnitTest::MenuItemSelect(Controls::Base* pControl)
 	}
 	else if (pMenuItem->GetText() == L"Open Project")
 	{
-		Gwen::Dialogs::FileOpen(true, String("Hi"), String(""), String(".jet"), this, &ThisClass::OnProjectOpen);
+		Gwen::Dialogs::FileOpen(true, String("Hi"), String(""), String(".jp|*.jp|All|*.*"), this, &ThisClass::OnProjectOpen);
 	}
 	else if (pMenuItem->GetText() == L"Start Debugging")
 	{
@@ -653,7 +653,7 @@ const char* ParseGdb(const char* str, GdbNode* node)
 
 			while (*str == ' ')
 				str++;
-			
+
 			str++;//eat equals sign
 
 			while (*str == ' ')
@@ -690,6 +690,12 @@ const char* ParseGdb(const char* str, GdbNode* node)
 				str += 2;
 				continue;
 			}
+			else if (*str == '\\' && *(str + 1) == '\\')
+			{
+				node->value += '\\';
+				str += 2;
+				continue;
+			}
 			node->value += *str++;
 		}
 		str++;
@@ -708,6 +714,15 @@ const char* ParseGdb(const char* str, GdbNode* node)
 	}
 	return str;
 }
+
+void StringReplace(std::string& subject, const std::string& search, const std::string& replace) {
+	size_t pos = 0;
+	while ((pos = subject.find(search, pos)) != std::string::npos) {
+		subject.replace(pos, search.length(), replace);
+		pos += replace.length();
+	}
+}
+
 void UnitTest::Layout(Skin::Base* skin)
 {
 	//process debug updates
@@ -768,6 +783,7 @@ void UnitTest::Layout(Skin::Base* skin)
 					continue;
 				}
 				std::string sub = ii.substr(pos + 10, ii.find("\"", pos + 10) - pos - 10);
+				StringReplace(sub, "\\\\", "\\");
 
 				pos = ii.find("line=\"");
 				std::string linesub = ii.substr(pos + 6, ii.find("\"", pos + 6) - pos - 6);
@@ -818,7 +834,7 @@ void UnitTest::Layout(Skin::Base* skin)
 						}
 
 						for (auto pp : value.children)
-							this->m_locals->Add(ii.second->children["name"]->value+"."+pp.first, pp.second->value);
+							this->m_locals->Add(ii.second->children["name"]->value + "." + pp.first, pp.second->value);
 
 						if (value.children.size() == 0)
 							this->m_locals->Add(ii.second->children["name"]->value, ii.second->children["value"]->value);
@@ -828,16 +844,16 @@ void UnitTest::Layout(Skin::Base* skin)
 					int pos = 0;
 					/*while (true)
 					{
-						pos = ii.find("name=\"", pos);
-						if (pos <= 0)
-							break;
+					pos = ii.find("name=\"", pos);
+					if (pos <= 0)
+					break;
 
-						std::string sub = ii.substr(pos + 6, ii.find("\"", pos + 6) - pos - 6);
+					std::string sub = ii.substr(pos + 6, ii.find("\"", pos + 6) - pos - 6);
 
-						pos = ii.find("value=\"", pos);
-						std::string valuesub = ii.substr(pos + 7, ii.find("\"", pos + 7) - pos - 7);
-						//todo actually parse it here
-						this->m_locals->Add(sub, valuesub);
+					pos = ii.find("value=\"", pos);
+					std::string valuesub = ii.substr(pos + 7, ii.find("\"", pos + 7) - pos - 7);
+					//todo actually parse it here
+					this->m_locals->Add(sub, valuesub);
 					}*/
 				}
 				else if (ii.substr(1, 4) == "exit")
@@ -909,6 +925,7 @@ void UnitTest::Layout(Skin::Base* skin)
 
 						pos = ii.find("fullname=\"", pos);
 						std::string filesub = ii.substr(pos + 10, ii.find("\"", pos + 10) - pos - 10);
+						StringReplace(filesub, "\\\\", "\\");
 
 						pos = ii.find("line=\"", pos);
 						std::string linesub = ii.substr(pos + 6, ii.find("\"", pos + 6) - pos - 6);
@@ -969,9 +986,9 @@ void UnitTest::OnFileTreePress(Gwen::Controls::Base* pControl)
 	/*std::string file = node->GetText().Get();
 	while ((node = gwen_cast<Gwen::Controls::TreeNode>(node->GetParent())))
 	{
-		if (gwen_cast<Gwen::Controls::TreeControl>(node))
-			break;
-		file = node->UserData.Get<std::string>("path") + "/" + file;
+	if (gwen_cast<Gwen::Controls::TreeControl>(node))
+	break;
+	file = node->UserData.Get<std::string>("path") + "/" + file;
 	}*/
 	if (node->UserData.Exists("path") == false)
 		return;
@@ -1058,13 +1075,13 @@ GWEN_CONTROL_CONSTRUCTOR(UnitTest)
 		pNode->UserData.Set<std::string>("path", "../");
 
 		//todo ok, instead of just format types need to store token types(kinda currently am so no big deal here)
-			//then with that can provide hover data as well as auto suggest
+		//then with that can provide hover data as well as auto suggest
 
-			//so that means I need to completely tokenize :S
+		//so that means I need to completely tokenize :S
 
-			//todo also need to add error parsing from compiler output
+		//todo also need to add error parsing from compiler output
 
-		
+
 		//ctrl->SetCacheToTexture();
 		ctrl->Dock(Pos::Fill);
 		ctrl->ExpandAll();
@@ -1180,6 +1197,15 @@ void UnitTest::OpenNewTab()
 	m_Tabs->OnTabPressed(tab);//bring the tab to the top
 }
 
+std::string ToLower(const std::string& str)
+{
+	std::string out;
+	out.resize(str.length());
+	for (int i = 0; i < str.length(); i++)
+		out[i] = tolower(str[i]);
+	return out;
+}
+
 #include <fstream>
 Gwen::Controls::TextBoxCode* UnitTest::OpenTab(const Gwen::String& filename, bool duplicate)
 {
@@ -1187,9 +1213,12 @@ Gwen::Controls::TextBoxCode* UnitTest::OpenTab(const Gwen::String& filename, boo
 	if (duplicate == false)
 	{
 		//try and find it
+		//lets just to_lower everything
+		//ok, we need to to lower everything for the comparison because we are getting issues
+		std::string tmp = ToLower(filename);
 		for (int i = 0; i < this->open_files.size(); i++)
 		{
-			if (this->open_files[i]->filename == filename)
+			if (ToLower(this->open_files[i]->filename) == tmp)
 				return this->open_files[i];
 		}
 	}
@@ -1238,16 +1267,19 @@ Gwen::Controls::TextBoxCode* UnitTest::OpenTab(const Gwen::String& filename, boo
 
 void UnitTest::OnBreakpointAdd(Gwen::Event::Info info)
 {
+	std::string lowered = ToLower(info.String.m_String);
 	if (this->debugging.joinable() == false)
 	{
 		//add/remove from list
 		for (int i = 0; i < this->breakpoints.size(); i++)
-			if (this->breakpoints[i].file == info.String.m_String && this->breakpoints[i].line == info.Integer)
+		{
+			if (ToLower(this->breakpoints[i].file) == lowered/*info.String.m_String*/ && this->breakpoints[i].line == info.Integer)
 			{
 				//remove it
 				this->breakpoints.erase(this->breakpoints.begin() + i);
 				return;
 			}
+		}
 
 		//this->m_breakpoints->AddItem()
 		//update breakpoint table
@@ -1261,9 +1293,10 @@ void UnitTest::OnBreakpointAdd(Gwen::Event::Info info)
 	//need to also use the filename
 	//if we already have the breakpoint, remove it with a clear command and then update list
 	//auto tab = this->OpenTab(info.String.c_str(), false);
+	//we have another case insensitivity issue with breakpoints to fix!
 	for (int i = 0; i < this->breakpoints.size(); i++)
 	{
-		if (this->breakpoints[i].line == info.Integer && breakpoints[i].file == info.String.m_String)
+		if (this->breakpoints[i].line == info.Integer && ToLower(breakpoints[i].file) == lowered/*info.String.m_String*/)
 		{
 			std::string command = "clear " + std::to_string(info.Integer) + "\n-break-list\n";
 			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
@@ -1272,7 +1305,7 @@ void UnitTest::OnBreakpointAdd(Gwen::Event::Info info)
 	}
 
 	//run the command to add it and refresh
-	std::string command = "b " + std::to_string(info.Integer) + "\n-break-list\n";
+	std::string command = "b \"" + info.String.m_String +"\":" + std::to_string(info.Integer) + "\n-break-list\n";
 	WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 }
 
@@ -1333,9 +1366,9 @@ void UnitTest::Render(Gwen::Skin::Base* skin)
 
 	auto editor = this->GetCurrentEditor();
 	if (editor)
-		m_StatusBar->SetText(Gwen::Utility::Format(L"\t%i fps\t\t\t\t\tLn %i\t Col %i", val*2, editor->GetCurrentLine() + 1, editor->GetCurrentColumn() + 1));
+		m_StatusBar->SetText(Gwen::Utility::Format(L"\t%i fps\t\t\t\t\tLn %i\t Col %i", val * 2, editor->GetCurrentLine() + 1, editor->GetCurrentColumn() + 1));
 	else
-		m_StatusBar->SetText(Gwen::Utility::Format(L"\t%i fps\t\t\t\t\tLn %i\t Col %i", val*2, 0, 0));
+		m_StatusBar->SetText(Gwen::Utility::Format(L"\t%i fps\t\t\t\t\tLn %i\t Col %i", val * 2, 0, 0));
 
 	BaseClass::Render(skin);
 }
