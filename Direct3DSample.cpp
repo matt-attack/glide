@@ -42,7 +42,7 @@ int main(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCm
 	// window - so we don't have to bother with all that crap.
 	//
 	//
-	
+	//lets fix tabs and their names also add ability to rename/delete files maybe?
 	Gwen::Controls::WindowCanvas window_canvas(-1, -1, 700.0f, 500.0f, &skin, "The Return of the Ded-eye");
 	window_canvas.SetSizable(true);
 	//window_canvas.SetScale(1.5);
@@ -59,7 +59,7 @@ int main(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCm
 	// Create our unittest control
 	//
 	//UnitTest* ppUnit2 = new UnitTest(&window_canvas2);
-	UnitTest* ppUnit = new UnitTest(&window_canvas);
+	IDE* ppUnit = new IDE(&window_canvas);
 	ppUnit->SetPos(10, 10);
 
 	while (!window_canvas.WantsQuit())

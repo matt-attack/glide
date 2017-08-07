@@ -22,7 +22,7 @@
 #include <thread>
 #include <mutex>
 
-class UnitTest;
+class IDE;
 
 namespace Gwen
 {
@@ -45,7 +45,7 @@ class GUnit : public Gwen::Controls::Base
 			m_pUnitTest = NULL;
 		}
 
-		void SetUnitTest( UnitTest* u ) { m_pUnitTest = u; }
+		void SetUnitTest(IDE* u) { m_pUnitTest = u; }
 
 		void UnitPrint( Gwen::UnicodeString str );
 		void UnitPrint( Gwen::String str );
@@ -58,16 +58,16 @@ class GUnit : public Gwen::Controls::Base
 		}
 
 
-		UnitTest* m_pUnitTest;
+		IDE* m_pUnitTest;
 };
 
-class UnitTest : public Gwen::Controls::DockBase
+class IDE : public Gwen::Controls::DockBase
 {
 	public:
 
-		GWEN_CONTROL( UnitTest, Gwen::Controls::DockBase );
+		GWEN_CONTROL(IDE, Gwen::Controls::DockBase);
 
-		~UnitTest();
+		~IDE();
 
 		void PrintText( const Gwen::UnicodeString & str );
 
@@ -86,6 +86,8 @@ class UnitTest : public Gwen::Controls::DockBase
 
 	private:
 		IProjectFormat* active_project = 0;
+
+		void ProcessMessages();
 
 		void OnFileOpen(Gwen::Event::Info info);
 		void OnProjectOpen(Gwen::Event::Info info);
@@ -132,7 +134,7 @@ class UnitTest : public Gwen::Controls::DockBase
 		
 		std::vector<Gwen::Controls::TextBoxCode::breakpoint> breakpoints;
 
-		std::vector<Gwen::Controls::TextBoxCode*> open_files;
+		std::vector<std::pair<Gwen::Controls::TextBoxCode*, Gwen::Controls::TabButton*>> open_files;
 };
 
 #define DEFINE_UNIT_TEST( name, displayname ) GUnit* RegisterUnitTest_##name( Gwen::Controls::Base* tab ){ return new name( tab ); }

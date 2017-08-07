@@ -378,8 +378,6 @@ int TextBoxCode::TextWidth()
 	return this->text_width;
 }
 
-
-
 void TextBoxCode::OnPaste(Gwen::Controls::Base* /*pCtrl*/)
 {
 	auto text = Platform::GetClipboardText();
@@ -414,9 +412,86 @@ void TextBoxCode::OnSelectAll(Gwen::Controls::Base* /*pCtrl*/)
 	RefreshCursorBounds();
 }
 
-void TextBoxCode::OnMouseDoubleClickLeft(int /*x*/, int /*y*/)
+void TextBoxCode::GetCharacterAtPoint(int x, int y, int& line, int& column)
+{
+	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
+	line = pos.y / this->GetFont()->size;
+	line += this->m_scroll;
+	float f_width = this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "W").x;
+	int iChar = 0;
+
+	if (line >= this->m_lines.size())
+		line = this->m_lines.size() - 1;
+
+	//ok, lets look at the line to see where we are in it
+	auto t = this->m_lines.begin();
+	for (int i = 0; i < line; i++)
+		t++;
+
+	int offset = 0;
+	for (int i = 0; i < t->m_Unicode.length(); i++)
+	{
+		WCHAR c = t->m_Unicode[i];
+		if (c == '\t')
+			offset = offset + (4 - offset % 4);//then round to the next greater 4th space
+
+		float xoff = m_hscroll + offset++*f_width;
+		if (xoff > pos.x + f_width / 4)
+		{
+			iChar = i - 1;// offset - 1;
+			break;
+		}
+		else if (i == t->m_Unicode.length() - 1)
+			if (xoff + f_width > pos.x + f_width / 4)
+				iChar = i;
+			else
+				iChar = i + 1;
+	}
+	if (iChar < 0)
+		iChar = 0;
+
+	column = iChar;
+}
+
+//another useful feature would be to select other words on the page like the one you are inside of
+void TextBoxCode::OnMouseDoubleClickLeft(int x, int y)
 {
 	//todo: select the whole word
+	int line, column;
+	this->GetCharacterAtPoint(x, y, line, column);
+
+	m_iCursorPos = column;
+	m_iCursorEndPos = column;
+	m_iCursorLine = m_iCursorEndLine = line;
+
+	auto t = this->m_lines.begin();
+	for (int i = 0; i < line; i++)
+		t++;
+
+	//search left
+	for (int i = column; i >= 0; i--)
+	{
+		if (isalnum(t->m_Unicode[i]) || t->m_Unicode[i] == '_')
+			m_iCursorPos--;
+		else
+			break;
+	}
+	m_iCursorPos += 1;
+
+	//search right
+	for (int i = column; i < t->m_Unicode.length(); i++)
+	{
+		if (isalnum(t->m_Unicode[i]) || t->m_Unicode[i] == '_')
+			m_iCursorEndPos++;
+		else
+			break;
+	}
+
+	RefreshCursorBounds();
+	//todo make me actually work
+	//then can look to the left and right of this for a non alphanumeric or _ to stop at
+	//	then select all the text inside of it
+	//	if we already have this as the selection, just deselect it
 	//OnSelectAll(this);
 }
 
@@ -774,7 +849,7 @@ void TextBoxCode::GoToLine(int l)
 void TextBoxCode::OnMouseClickRight(int x, int y, bool /*bDown*/)
 {
 	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
-	pos.x += 43;
+	pos.x += 63;
 	this->m_context_menu->Show();
 	this->m_context_menu->SetPos(pos);
 }
@@ -791,43 +866,9 @@ void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 		return;
 	}
 
+	int line, iChar;
+	this->GetCharacterAtPoint(x, y, line, iChar);
 	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
-	int line = pos.y / this->GetFont()->size;
-	line += this->m_scroll;
-	float f_width = this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "W").x;
-	int iChar = 0;
-
-	if (line >= this->m_lines.size())
-		line = this->m_lines.size() - 1;
-
-	//ok, lets look at the line to see where we are in it
-	auto t = this->m_lines.begin();
-	for (int i = 0; i < line; i++)
-		t++;
-
-	int offset = 0;
-	for (int i = 0; i < t->m_Unicode.length(); i++)
-	{
-		WCHAR c = t->m_Unicode[i];
-		if (c == '\t')
-			offset = offset + (4 - offset % 4);//then round to the next greater 4th space
-
-		float xoff = m_hscroll + offset++*f_width;
-		if (xoff > pos.x + f_width / 4)
-		{
-			iChar = i - 1;// offset - 1;
-			break;
-		}
-		else if (i == t->m_Unicode.length() - 1)
-			if (xoff + f_width > pos.x + f_width / 4)
-				iChar = i;
-			else
-				iChar = i + 1;
-	}
-	if (iChar < 0)
-		iChar = 0;
-
-
 	//make it so people can add breakpoints then call
 	//but dont add the breakpoint icon here, let our parent do that after the command completes
 	if (pos.x < 0 && bDown)
@@ -1043,7 +1084,7 @@ std::wregex num(L"\\b(for|do|if|else|while|case|break|return|fun|let|struct|exte
 std::wregex comment(L"\\/{2}.*");
 
 std::map<WCHAR, std::vector<std::wstring>> keywords = {
-	{ 'f', { L"for", L"fun" } },
+	{ 'f', { L"for", L"fun", L"free" } },
 	{ 'i', { L"if" } },
 	{ 'd', { L"do", L"default" } },
 	{ 'l', { L"let" } },
@@ -1053,7 +1094,7 @@ std::map<WCHAR, std::vector<std::wstring>> keywords = {
 	{ 'b', { L"break" } },
 	{ 'w', { L"while" } },
 	{ 'u', { L"union" } },
-	{ 'n', { L"namespace" } },
+	{ 'n', { L"namespace", L"new" } },
 	{ 'e', { L"extern", L"else" } },
 	{ 't', { L"this", L"typedef", L"trait" } },
 	{ 'r', { L"return" } },
@@ -1311,7 +1352,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 					}
 				}
 
-				if (c == '\t' || c == ' ')
+				if (c == '\t' || c == ' ' || c == '(')
 					was_space = true;
 				else
 					was_space = false;
@@ -1521,7 +1562,7 @@ void TextBoxCode::MakeCaratVisible()
 
 int TextBoxCode::GetCurrentLine()
 {
-	return this->m_iCursorLine;// m_Text->GetLineFromChar(m_iCursorPos);
+	return this->m_iCursorLine;
 }
 
 int TextBoxCode::GetCurrentColumn()

@@ -101,6 +101,8 @@ namespace Gwen
 
 			virtual void SetSelectAllOnFocus(bool b) { m_bSelectAll = b; if (b) { OnSelectAll(this); } }
 
+			void GetCharacterAtPoint(int x, int y, int& line, int& column);
+
 			virtual void MakeCaratVisible();
 
 			virtual void OnEnter();
@@ -135,6 +137,11 @@ namespace Gwen
 			};
 			std::vector<indicator> line_indicators;
 			std::vector<breakpoint>* breakpoints = 0;
+
+			bool IsModified()
+			{
+				return this->modified;
+			}
 
 		protected:
 

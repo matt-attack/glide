@@ -38,7 +38,7 @@ Gwen::Controls::TabButton* pButton = NULL;
 #include "Gwen/Controls/Dialogs/FolderOpen.h"
 #include "TextBoxCode.h"
 
-UnitTest::~UnitTest()
+IDE::~IDE()
 {
 	if (this->debugging.joinable())
 	{
@@ -49,13 +49,13 @@ UnitTest::~UnitTest()
 	}
 }
 
-void UnitTest::OnFileOpen(Gwen::Event::Info info)
+void IDE::OnFileOpen(Gwen::Event::Info info)
 {
 	auto name = info.String;
 	this->OpenTab(name);
 }
 
-void find_files(LPCWSTR path, Gwen::Controls::TreeNode* parent, UnitTest* root){
+void find_files(LPCWSTR path, Gwen::Controls::TreeNode* parent, IDE* root){
 	HANDLE hFind;
 	WIN32_FIND_DATA FindFileData;
 	std::wstring spath = path;
@@ -69,7 +69,7 @@ void find_files(LPCWSTR path, Gwen::Controls::TreeNode* parent, UnitTest* root){
 
 			//node->SetToolTip(spath + L"/" + FindFileData.cFileName);
 
-			node->onDoubleClick.Add(root, &UnitTest::OnFileTreePress);
+			node->onDoubleClick.Add(root, &IDE::OnFileTreePress);
 			if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 			{
 				//loop
@@ -84,7 +84,7 @@ void find_files(LPCWSTR path, Gwen::Controls::TreeNode* parent, UnitTest* root){
 }
 
 
-void UnitTest::OnFolderOpen(Gwen::Event::Info info)
+void IDE::OnFolderOpen(Gwen::Event::Info info)
 {
 	Gwen::Controls::TreeNode* pNode = file_list->AddNode(info.String);
 	pNode->SetImage(L"icons/folder.png");
@@ -92,7 +92,7 @@ void UnitTest::OnFolderOpen(Gwen::Event::Info info)
 	find_files(info.String.GetUnicode().c_str(), pNode, this);
 }
 
-void UnitTest::OnFileSave(Gwen::Event::Info info)
+void IDE::OnFileSave(Gwen::Event::Info info)
 {
 	auto newname = info.String;
 
@@ -189,7 +189,7 @@ public:
 };
 
 
-void UnitTest::OnProjectOpen(Gwen::Event::Info info)
+void IDE::OnProjectOpen(Gwen::Event::Info info)
 {
 	auto name = info.String;
 
@@ -219,7 +219,7 @@ void UnitTest::OnProjectOpen(Gwen::Event::Info info)
 }
 
 
-void UnitTest::MenuItemSelect(Controls::Base* pControl)
+void IDE::MenuItemSelect(Controls::Base* pControl)
 {
 	Gwen::Controls::MenuItem* pMenuItem = (Gwen::Controls::MenuItem*) pControl;
 	if (pMenuItem->GetText() == L"Quit")
@@ -342,7 +342,7 @@ void UnitTest::MenuItemSelect(Controls::Base* pControl)
 		//set breakpoints
 		for (auto& bp : this->breakpoints)
 		{
-			std::string command = "b " + std::to_string(bp.line) + "\n";
+			std::string command = "b \"" + bp.file + "\":" + std::to_string(bp.line) + "\n";
 			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 		}
 
@@ -391,8 +391,6 @@ void UnitTest::MenuItemSelect(Controls::Base* pControl)
 						//@ = output from running target
 						//& = gdb internal debug output
 						//* = out of band things like breakpoints being hit
-						//if (line[0] == '~')
-						//	printf("");
 						this->lines_to_add.push_back(line);
 					}
 					this->line_mutex.unlock();
@@ -723,7 +721,14 @@ void StringReplace(std::string& subject, const std::string& search, const std::s
 	}
 }
 
-void UnitTest::Layout(Skin::Base* skin)
+void IDE::Layout(Skin::Base* skin)
+{
+	this->ProcessMessages();
+
+	BaseClass::Layout(skin);
+}
+
+void IDE::ProcessMessages()
 {
 	//process debug updates
 	line_mutex.lock();
@@ -744,8 +749,8 @@ void UnitTest::Layout(Skin::Base* skin)
 					//ok, lets make the line indicator different than breakpoints this is screwing me up a lot
 					for (auto ii : this->open_files)
 					{
-						ii->line_indicators.clear();
-						ii->Redraw();
+						ii.first->line_indicators.clear();
+						ii.first->Redraw();
 					}
 					continue;
 				}
@@ -861,9 +866,13 @@ void UnitTest::Layout(Skin::Base* skin)
 					//clear out debug info
 					this->m_locals->Clear();
 					this->m_callstack->Clear();
+
+					//remove indicators (later need to make sure this doesnt remove error related ones)
+					for (auto ii : this->open_files)
+						ii.first->line_indicators.clear();
+
 					if (this->debugging.joinable())
 						this->debugging.join();
-					//this->m_breakpoints->Clear();
 				}
 				else if (ii.substr(1, 10) == "done,stack")
 				{
@@ -894,24 +903,6 @@ void UnitTest::Layout(Skin::Base* skin)
 					this->m_breakpoints->Clear();
 					this->breakpoints.clear();
 
-					//need to clear out old breakpoints from textboxes
-					//todo make sure this doesnt get rid of the selection indicator
-					/*for (int i = 0; i < this->open_files.size(); i++)
-					{
-					if (this->open_files[i]->line_indicators.size() > 0)
-					{
-					//remove all breakpoints
-					auto of = this->open_files[i];
-					auto copy = of->line_indicators;
-					of->line_indicators.clear();
-					for (int i = 0; i < copy.size(); i++)
-					{
-					if (copy[i].type != 1)
-					of->line_indicators.push_back(copy[i]);
-					}
-					}
-					}*/
-
 					//this doesnt seem right
 					//need to extract func, fullname, and line
 					int pos = 0;
@@ -933,17 +924,10 @@ void UnitTest::Layout(Skin::Base* skin)
 						this->m_breakpoints->AddItem(sub + "():" + linesub, "ok");
 
 						//add the breakpoint to the editor
-						int line = std::atoi(linesub.c_str());// -1;
-						//auto editor = this->OpenTab(filesub, false);
-						//editor->line_indicators.push_back({ line, 1 });
+						int line = std::atoi(linesub.c_str());
 						this->breakpoints.push_back({ line, filesub });
 					}
-					//todo ok just need to add the breakpoints to the editors, need to also make sure that they display 
-					//differently than the next line icon
 				}
-
-				//ok, lets parse then then put it somewhere!
-				//printf("");
 			}
 
 			//*stopped and *running are very useful things to indicate which options should be enabled
@@ -975,21 +959,13 @@ void UnitTest::Layout(Skin::Base* skin)
 
 	this->output_to_add.clear();
 	output_mutex.unlock();
-
-	BaseClass::Layout(skin);
 }
 
 
-void UnitTest::OnFileTreePress(Gwen::Controls::Base* pControl)
+void IDE::OnFileTreePress(Gwen::Controls::Base* pControl)
 {
 	Gwen::Controls::TreeNode* node = static_cast<Gwen::Controls::TreeNode*>(pControl);
-	/*std::string file = node->GetText().Get();
-	while ((node = gwen_cast<Gwen::Controls::TreeNode>(node->GetParent())))
-	{
-	if (gwen_cast<Gwen::Controls::TreeControl>(node))
-	break;
-	file = node->UserData.Get<std::string>("path") + "/" + file;
-	}*/
+	
 	if (node->UserData.Exists("path") == false)
 		return;
 
@@ -999,10 +975,9 @@ void UnitTest::OnFileTreePress(Gwen::Controls::Base* pControl)
 	return;
 }
 
-GWEN_CONTROL_CONSTRUCTOR(UnitTest)
+GWEN_CONTROL_CONSTRUCTOR(IDE)
 {
-
-	//parsing practive
+	//parsing practice
 	//ok [ ] indicates array
 	// { } indicates struct
 	std::string str = "[{name = \"x\", value = \"{data = 0x6d8b5c \\\"new\\\", max_size = 4, cur_size = 4, __vtable = 0x402050 <__string_vtable>, __vtable = 0x0}\"},"
@@ -1167,7 +1142,7 @@ GWEN_CONTROL_CONSTRUCTOR(UnitTest)
 }
 
 
-void UnitTest::OpenNewTab()
+void IDE::OpenNewTab()
 {
 	auto page = new Gwen::Controls::TextBoxCode(this);
 	page->SetFont(&this->m_CodeFont);
@@ -1207,7 +1182,7 @@ std::string ToLower(const std::string& str)
 }
 
 #include <fstream>
-Gwen::Controls::TextBoxCode* UnitTest::OpenTab(const Gwen::String& filename, bool duplicate)
+Gwen::Controls::TextBoxCode* IDE::OpenTab(const Gwen::String& filename, bool duplicate)
 {
 	//make sure this wont open more than one of the same tab
 	if (duplicate == false)
@@ -1218,8 +1193,8 @@ Gwen::Controls::TextBoxCode* UnitTest::OpenTab(const Gwen::String& filename, boo
 		std::string tmp = ToLower(filename);
 		for (int i = 0; i < this->open_files.size(); i++)
 		{
-			if (ToLower(this->open_files[i]->filename) == tmp)
-				return this->open_files[i];
+			if (ToLower(this->open_files[i].first->filename) == tmp)
+				return this->open_files[i].first;
 		}
 	}
 
@@ -1242,8 +1217,15 @@ Gwen::Controls::TextBoxCode* UnitTest::OpenTab(const Gwen::String& filename, boo
 
 	delete[] buffer;
 
-	auto tab = m_Tabs->AddPage(filename + "       ", page);
-
+	int p = filename.find_last_of('\\') == -1 ? filename.find_last_of('/') : filename.find_last_of('\\');
+	p += 1;
+	std::string page_name = filename.substr(p, filename.length() - p);
+	auto tab = m_Tabs->AddPage(page_name + "         ", page);
+	auto children = tab->GetChildren();
+	auto text = dynamic_cast<Gwen::ControlsInternal::Text*>(children.front());
+	//text->SetToolTip("hi");
+	//tab->SetToolTip(filename);
+	//tab->GetTabControl()->SetToolTip(filename);
 	Controls::Button* pButtonC = new Controls::Button(tab);
 	pButtonC->SetSize(20, 20);
 	pButtonC->SetPos(0, 2);
@@ -1251,7 +1233,8 @@ Gwen::Controls::TextBoxCode* UnitTest::OpenTab(const Gwen::String& filename, boo
 	pButtonC->SetText("x");
 	//pButtonC->SetImage(L"test16.png");
 	pButtonC->onPress.Add(this, &ThisClass::OnCloseTab);
-
+	//pButtonC->SetToolTip(filename);
+	//ok, lets fix title names to be shortened and get tooltips working on them
 	page->filename = filename;
 
 	page->SetWrap(false);
@@ -1261,11 +1244,11 @@ Gwen::Controls::TextBoxCode* UnitTest::OpenTab(const Gwen::String& filename, boo
 	m_Tabs->OnTabPressed(tab);//bring the tab to the top
 
 	page->breakpoints = &this->breakpoints;
-	this->open_files.push_back(page);
+	this->open_files.push_back({ page, tab });
 	return page;
 }
 
-void UnitTest::OnBreakpointAdd(Gwen::Event::Info info)
+void IDE::OnBreakpointAdd(Gwen::Event::Info info)
 {
 	std::string lowered = ToLower(info.String.m_String);
 	if (this->debugging.joinable() == false)
@@ -1309,14 +1292,14 @@ void UnitTest::OnBreakpointAdd(Gwen::Event::Info info)
 	WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 }
 
-void UnitTest::OnCloseTab(Gwen::Controls::Base* pControl)
+void IDE::OnCloseTab(Gwen::Controls::Base* pControl)
 {
 	auto parent = static_cast<Gwen::Controls::TabButton*>(pControl->GetParent());
 
 	auto page = parent->GetPage();
 	for (int i = 0; i < this->open_files.size(); i++)
 	{
-		if (this->open_files[i] == page)
+		if (this->open_files[i].first == page)
 		{
 			this->open_files.erase(open_files.begin() + i);
 			break;
@@ -1328,14 +1311,14 @@ void UnitTest::OnCloseTab(Gwen::Controls::Base* pControl)
 	page->DelayedDelete();
 }
 
-Gwen::Controls::TextBoxCode* UnitTest::GetCurrentEditor()
+Gwen::Controls::TextBoxCode* IDE::GetCurrentEditor()
 {
 	//todo: improve me
 	auto button = this->m_Tabs->GetCurrentButton();
 	return dynamic_cast<Gwen::Controls::TextBoxCode*>(button->GetPage());
 }
 
-void UnitTest::OnCategorySelect(Gwen::Event::Info info)
+void IDE::OnCategorySelect(Gwen::Event::Info info)
 {
 	if (m_pLastControl)
 	{
@@ -1346,14 +1329,14 @@ void UnitTest::OnCategorySelect(Gwen::Event::Info info)
 	m_pLastControl = static_cast<Gwen::Controls::Base*>(info.Data);
 }
 
-void UnitTest::PrintText(const Gwen::UnicodeString & str)
+void IDE::PrintText(const Gwen::UnicodeString & str)
 {
 	m_TextOutput->AddItem(str);
 	m_TextOutput->ScrollToBottom();
 }
 
 int val = 0;
-void UnitTest::Render(Gwen::Skin::Base* skin)
+void IDE::Render(Gwen::Skin::Base* skin)
 {
 	m_iFrames++;
 	//show current line number of active tab, also need to figure out how to display active tab
@@ -1362,6 +1345,26 @@ void UnitTest::Render(Gwen::Skin::Base* skin)
 		val = m_iFrames;
 		m_fLastSecond = Gwen::Platform::GetTimeInSeconds() + 0.5f;
 		m_iFrames = 0;
+	}
+
+	//lets update tabs to the right name if we are editted (todo, make this happen less often)
+	for (auto ii : this->open_files)
+	{
+		if (ii.first->IsModified())
+		{
+			if (ii.second->GetText().c_str()[0] == '*')
+				continue;
+			std::string str = "*";
+			str += ii.second->GetText().Get();
+			ii.second->SetText(str);
+		}
+		else
+		{
+			if (ii.second->GetText().c_str()[0] != '*')
+				continue;
+			std::string str = ii.second->GetText().Get().substr(1, ii.second->GetText().Get().length());
+			ii.second->SetText(str);
+		}
 	}
 
 	auto editor = this->GetCurrentEditor();
