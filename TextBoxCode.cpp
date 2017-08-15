@@ -168,7 +168,7 @@ void TextBoxCode::onHScroll(Controls::Base* pControl)
 std::list<TextBoxCode::Line>::iterator TextBoxCode::GetLine(unsigned int line)
 {
 	auto t = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorLine; i++)
+	for (int i = 0; i < line; i++)
 		t++;
 
 	return t;
@@ -330,16 +330,16 @@ void TextBoxCode::RefreshCursorBounds()
 		m_iCursorLine = this->m_lines.size() - 1;
 	if (m_iCursorLine < 0)
 		m_iCursorLine = 0;
-	auto t = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorLine; i++)
-		t++;
+	auto t = this->GetLine(m_iCursorLine);// this->m_lines.begin();
+	//for (int i = 0; i < m_iCursorLine; i++)
+	//	t++;
 
 	if (m_iCursorPos > t->m_Unicode.length())
 		m_iCursorPos = t->m_Unicode.length();
 
-	auto te = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorEndLine; i++)
-		te++;
+	auto te = this->GetLine(m_iCursorEndLine);// this->m_lines.begin();
+	//for (int i = 0; i < m_iCursorEndLine; i++)
+	//	te++;
 
 	if (m_iCursorEndPos > te->m_Unicode.length())
 		m_iCursorEndPos = te->m_Unicode.length();
@@ -651,9 +651,9 @@ bool TextBoxCode::OnKeyDelete(bool bDown)
 		return true;
 	}
 
-	auto line = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorLine; i++)
-		line++;
+	auto line = this->GetLine(m_iCursorLine);// this->m_lines.begin();
+	//for (int i = 0; i < m_iCursorLine; i++)
+	//	line++;
 	if (m_iCursorPos > line->m_Unicode.length())
 		return true;
 
@@ -774,10 +774,10 @@ Gwen::UnicodeString TextBoxCode::DeleteText(int iStartPos, int iStartLine, int i
 	if (iStartPos < 0)
 		iStartLine--;
 
-	auto t = this->m_lines.begin();
-	for (int i = 0; i < iStartLine; i++)
-		t++;
-
+	auto t = this->GetLine(iStartLine); //this->m_lines.begin();
+	//for (int i = 0; i < iStartLine; i++)
+	//	t++;
+	//make this set cursor at the end of a line if we delete a newline
 	if (iStartPos < 0)
 		iStartPos = t->m_Unicode.length() + iStartPos + 1;
 
@@ -793,6 +793,7 @@ Gwen::UnicodeString TextBoxCode::DeleteText(int iStartPos, int iStartLine, int i
 				//remove a line
 				auto line = *t;
 				this->m_lines.erase(t++);
+				removed.push_back('\n');
 				unsigned int pos = line.m_Unicode.length();// t->m_Unicode.length();
 				t->m_Unicode = line.m_Unicode + t->m_Unicode;// .append(line);
 				t->dirty = true;
@@ -802,6 +803,7 @@ Gwen::UnicodeString TextBoxCode::DeleteText(int iStartPos, int iStartLine, int i
 			}
 			else
 			{
+				removed.push_back(t->m_Unicode[iStartPos]);
 				t->m_Unicode.erase(iStartPos, 1);
 				t->dirty = true;
 				t->width_dirty = true;
@@ -814,9 +816,8 @@ Gwen::UnicodeString TextBoxCode::DeleteText(int iStartPos, int iStartLine, int i
 		t->m_Unicode.erase(iStartPos, iLength);
 		t->dirty = true;
 	}
-	//SetText(str);
 
-	if (m_iCursorPos > iStartPos)
+	if (m_iCursorPos > iStartPos)// && m_iCursorLine == iStartLine)
 	{
 		this->m_iCursorPos = m_iCursorPos - iLength;
 		//SetCursorPos(m_iCursorPos - iLength);
@@ -870,10 +871,12 @@ void TextBoxCode::EraseSelection(bool undoable)
 	}
 	else
 	{
-		auto t = this->m_lines.begin();
-		for (int i = 0; i < iStartLine; i++)
-			t++;
+		auto t = this->GetLine(iStartLine);// this->m_lines.begin();
+		//for (int i = 0; i < iStartLine; i++)
+		//	t++;
 
+		Gwen::UnicodeString removed;
+		removed += t->m_Unicode.substr(iStart, t->m_Unicode.length() - iStart);
 		t->m_Unicode.erase(iStart, t->m_Unicode.length() - iStart);
 		t->dirty = true;
 		//DeleteText(iStart, iStartLine, t->length() - iStart);
@@ -887,12 +890,16 @@ void TextBoxCode::EraseSelection(bool undoable)
 			//delete the line
 			auto next = t;
 			next++;
+			removed += '\n';
+			removed += t->m_Unicode;
 			this->m_lines.erase(t);
 			t = next;
 		}
 
 		//delete last line
 		t->dirty = true;
+		removed += '\n';
+		removed += t->m_Unicode.substr(0, iEnd);
 		t->m_Unicode.erase(0, iEnd);
 		//DeleteText(0, iStartLine+1, iEnd);
 
@@ -904,6 +911,16 @@ void TextBoxCode::EraseSelection(bool undoable)
 		//cursor goes to start position
 		this->m_iCursorLine = this->m_iCursorEndLine = iStartLine;
 		this->m_iCursorPos = this->m_iCursorEndPos = iStart;
+
+		if (undoable)
+		{
+			Action act;
+			act.line = iStartLine;
+			act.pos = iStart;
+			act.text = removed;
+			act.length = -removed.length();
+			this->AddUndoableAction(act);
+		}
 	}
 
 	this->RefreshCursorBounds();
@@ -1004,9 +1021,9 @@ void TextBoxCode::OnMouseMoved(int x, int y, int /*deltaX*/, int /*deltaY*/)
 		this->m_iCursorLine = line;
 
 	//ok, lets look at the line to see where we are in it
-	auto t = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorLine; i++)
-		t++;
+	auto t = this->GetLine(m_iCursorLine); //this->m_lines.begin();
+	//for (int i = 0; i < m_iCursorLine; i++)
+	//	t++;
 
 	int offset = 0;
 	for (int i = 0; i < t->m_Unicode.length(); i++)
@@ -1084,6 +1101,7 @@ void TextBoxCode::AddUndoableAction(Action a)
 {
 	action_list.push_back(a);
 
+	//todo handle modified tag when this happens
 	if (action_list.size() > 100)
 		action_list.pop_front();
 }
@@ -1749,9 +1767,9 @@ bool TextBoxCode::OnKeyUp(bool bDown)
 
 	m_iCursorLine--;
 
-	auto line = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorLine; i++)
-		line++;
+	auto line = this->GetLine(m_iCursorLine);// this->m_lines.begin();
+	//for (int i = 0; i < m_iCursorLine; i++)
+	//	line++;
 	if (m_iCursorPos > line->m_Unicode.length())
 		m_iCursorPos = line->m_Unicode.length();
 	/*m_iCursorPos = m_Text->GetStartCharFromLine(iLine - 1);
@@ -1763,8 +1781,6 @@ bool TextBoxCode::OnKeyUp(bool bDown)
 		m_iCursorEndPos = m_iCursorPos;
 		m_iCursorEndLine = m_iCursorLine;
 	}
-
-
 
 	RefreshCursorBounds();
 	return true;
@@ -1800,9 +1816,9 @@ bool TextBoxCode::OnKeyDown(bool bDown)
 
 	m_iCursorLine++;
 
-	auto line = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorLine; i++)
-		line++;
+	auto line = this->GetLine(m_iCursorLine);// this->m_lines.begin();
+	//for (int i = 0; i < m_iCursorLine; i++)
+	//	line++;
 	if (m_iCursorPos > line->m_Unicode.length())
 		m_iCursorPos = line->m_Unicode.length();
 
