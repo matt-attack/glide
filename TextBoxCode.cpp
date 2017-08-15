@@ -12,6 +12,7 @@
 #include "Gwen/Utility.h"
 #include "Gwen/Platform.h"
 #include "Gwen/Controls/Menu.h"
+#include "Gwen/Controls/ListBox.h"
 #include <math.h>
 
 using namespace Gwen;
@@ -74,6 +75,16 @@ GWEN_CONTROL_CONSTRUCTOR(TextBoxCode)
 	this->icon_font.realsize = 18;
 	this->icon_font.size = 18;
 
+	this->ac_menu = new Gwen::Controls::ListBox(this);
+	ac_menu->AddItem("A");
+	ac_menu->AddItem("B");
+	ac_menu->AddItem("C");
+	ac_menu->AddItem("D");
+	ac_menu->AddItem("E");
+	ac_menu->AddItem("F");
+	ac_menu->AddItem("G");
+	ac_menu->Hide();
+
 	//use this
 	auto menu = new Gwen::Controls::Menu(this);
 	menu->AddItem("Cut")->SetAction(this, &ThisClass::onMenuItemSelect);
@@ -88,12 +99,16 @@ TextBoxCode::~TextBoxCode()
 	delete this->m_vbar;
 	delete this->m_hbar;
 	delete this->m_context_menu;
+	delete this->ac_menu;
 }
 
 void TextBoxCode::OnUndo(Gwen::Controls::Base*)
 {
 	if (this->action_list.size() == 0)
+	{
+		this->modified = false;
 		return;
+	}
 
 	//undo the last action
 	auto action = this->action_list.back();
@@ -111,10 +126,19 @@ void TextBoxCode::OnUndo(Gwen::Controls::Base*)
 		auto oldcl = this->m_iCursorLine;
 
 		this->m_iCursorLine = this->m_iCursorEndLine = action.line;
-		this->m_iCursorPos = this->m_iCursorPos = action.pos;
+		this->m_iCursorPos = this->m_iCursorEndPos = action.pos;
 		this->InsertText(action.text);
+
+		//this->m_iCursorPos = oldcp;
+		//this->m_iCursorLine = oldcl;
 	}
 	this->action_list.pop_back();
+
+	if (this->action_list.size() == 0)
+	{
+		this->modified = false;
+		return;
+	}
 }
 
 void TextBoxCode::onMenuItemSelect(Controls::Base* pControl)
@@ -141,9 +165,27 @@ void TextBoxCode::onHScroll(Controls::Base* pControl)
 	this->m_hscroll = scroll*(this->TextWidth() - (this->Width() - this->m_hbar->GetSize().x - this->GetPadding().left));
 }
 
+std::list<TextBoxCode::Line>::iterator TextBoxCode::GetLine(unsigned int line)
+{
+	auto t = this->m_lines.begin();
+	for (int i = 0; i < m_iCursorLine; i++)
+		t++;
+
+	return t;
+}
+
+
 bool TextBoxCode::OnChar(Gwen::UnicodeChar c)
 {
 	if (c == '\t') { return false; }
+	
+	ac_menu->Show();
+	UnicodeString sub = this->GetLine(m_iCursorLine)->m_Unicode.substr(0, m_iCursorPos);
+	//need to implement own measure function to account for tabs
+	Gwen::PointF p = GetSkin()->GetRender()->MeasureText(GetFont(), sub);
+	//ok, lets set it correctly on x axis then when user hits enter hide it
+	ac_menu->SetPos(p.x + this->GetSidebarWidth(), (m_iCursorLine - m_scroll + 1)*this->GetFont()->size + 2);
+	ac_menu->SetSize(100, 100);
 
 	Gwen::UnicodeString str;
 	str += c;
@@ -190,7 +232,7 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 	needs_width_update = true;
 
 	if (HasSelection())
-		EraseSelection();
+		EraseSelection(false);
 
 	this->modified = true;
 
@@ -219,9 +261,11 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 				auto rest = t->m_Unicode.substr(m_iCursorPos, t->m_Unicode.length() - m_iCursorPos);
 				t->m_Unicode = t->m_Unicode.substr(0, m_iCursorPos);
 				t->dirty = true;
+				t->width_dirty = true;
 				Line n;
 				n.m_Unicode = rest;
 				n.dirty = true;
+				n.width_dirty = true;
 				n.is_comment = t->is_comment;
 				t = m_lines.insert(t, n);
 				m_iCursorPos = 0;
@@ -243,6 +287,7 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 		{
 			t->m_Unicode.insert(m_iCursorPos++, strInsert.substr(i, 1));
 			t->dirty = true;
+			t->width_dirty = true;
 		}
 	}
 
@@ -363,19 +408,27 @@ int TextBoxCode::TextWidth()
 		//just check each line on modifications
 		int width = 0;
 		auto t = this->m_lines.begin();
+		//todo: lets remove the need to iterate through all lines
 		for (int i = 0; i < this->m_lines.size(); i++)
 		{
+			if (t->width_dirty)
+			{
+				//update line width
+				Gwen::PointF p = GetSkin()->GetRender()->MeasureText(GetFont(), t->m_Unicode);
+				t->width = p.x;
+				t->width_dirty = false;
+			}
 			//need to implement own measure function to account for tabs
-			Gwen::PointF p = GetSkin()->GetRender()->MeasureText(GetFont(), t->m_Unicode);
-			if (p.x > width)
-				width = p.x;
+			if (width < t->width)
+				width = t->width;
 			t++;
 		}
 		this->text_width = width;
 		this->needs_width_update = false;
 		return width;
 	}
-	return this->text_width;
+	//float width = this->GetSkin()->GetRender()->MeasureText(GetFont(), "W").x;
+	return this->text_width;// *;
 }
 
 void TextBoxCode::OnPaste(Gwen::Controls::Base* /*pCtrl*/)
@@ -436,13 +489,13 @@ void TextBoxCode::GetCharacterAtPoint(int x, int y, int& line, int& column)
 			offset = offset + (4 - offset % 4);//then round to the next greater 4th space
 
 		float xoff = m_hscroll + offset++*f_width;
-		if (xoff > pos.x + f_width / 4)
+		if (xoff > pos.x - f_width)// / 4000)
 		{
 			iChar = i - 1;// offset - 1;
 			break;
 		}
 		else if (i == t->m_Unicode.length() - 1)
-			if (xoff + f_width > pos.x + f_width / 4)
+			if (xoff + f_width > pos.x)// - f_width / 4000)
 				iChar = i;
 			else
 				iChar = i + 1;
@@ -575,8 +628,15 @@ bool TextBoxCode::OnKeyBackspace(bool bDown)
 	{
 		//todo actually get this right
 		//	have delete text return the deleted string?
-		this->AddUndoableAction({ m_iCursorLine, m_iCursorPos, -1, L"a" });
-		DeleteText(m_iCursorPos - 1, m_iCursorLine, 1);
+		TextBoxCode::Action act;
+		act.line = m_iCursorLine;
+		act.pos = m_iCursorPos-1;
+		act.length = -1;
+		
+		Gwen::UnicodeString removed = DeleteText(m_iCursorPos - 1, m_iCursorLine, 1);
+
+		act.text = removed;
+		this->AddUndoableAction(act);
 	}
 	return true;
 }
@@ -702,12 +762,14 @@ void TextBoxCode::SetCursorEnd(int line, int i)
 }
 
 
-void TextBoxCode::DeleteText(int iStartPos, int iStartLine, int iLength)
+Gwen::UnicodeString TextBoxCode::DeleteText(int iStartPos, int iStartLine, int iLength)
 {
-	if (!m_bEditable) return;
+	if (!m_bEditable) return Gwen::UnicodeString(L"");
 
 	needs_width_update = true;
 	this->modified = true;
+	
+	Gwen::UnicodeString removed;
 
 	if (iStartPos < 0)
 		iStartLine--;
@@ -734,6 +796,7 @@ void TextBoxCode::DeleteText(int iStartPos, int iStartLine, int iLength)
 				unsigned int pos = line.m_Unicode.length();// t->m_Unicode.length();
 				t->m_Unicode = line.m_Unicode + t->m_Unicode;// .append(line);
 				t->dirty = true;
+				t->width_dirty = true;
 				this->m_iCursorLine--;
 				this->m_iCursorPos = pos + 1;
 			}
@@ -741,11 +804,13 @@ void TextBoxCode::DeleteText(int iStartPos, int iStartLine, int iLength)
 			{
 				t->m_Unicode.erase(iStartPos, 1);
 				t->dirty = true;
+				t->width_dirty = true;
 			}
 		}
 	}
 	else
 	{
+		removed = t->m_Unicode.substr(iStartPos, iLength);
 		t->m_Unicode.erase(iStartPos, iLength);
 		t->dirty = true;
 	}
@@ -758,6 +823,7 @@ void TextBoxCode::DeleteText(int iStartPos, int iStartLine, int iLength)
 	}
 
 	SetCursorEnd(m_iCursorLine, m_iCursorPos);
+	return removed;
 }
 
 bool TextBoxCode::HasSelection()
@@ -765,7 +831,7 @@ bool TextBoxCode::HasSelection()
 	return (m_iCursorPos != m_iCursorEndPos) || (m_iCursorLine != m_iCursorEndLine);
 }
 
-void TextBoxCode::EraseSelection()
+void TextBoxCode::EraseSelection(bool undoable)
 {
 	needs_width_update = true;
 
@@ -790,7 +856,18 @@ void TextBoxCode::EraseSelection()
 	}
 
 	if (m_iCursorEndLine == m_iCursorLine)
-		DeleteText(iStart, iStartLine, iEnd - iStart);
+	{
+		Gwen::UnicodeString str = DeleteText(iStart, iStartLine, iEnd - iStart);
+		if (undoable)
+		{
+			Action act;
+			act.line = iStartLine;
+			act.pos = iStart;
+			act.text = str;
+			act.length = -(iEnd - iStart);
+			this->AddUndoableAction(act);
+		}
+	}
 	else
 	{
 		auto t = this->m_lines.begin();
@@ -852,11 +929,14 @@ void TextBoxCode::OnMouseClickRight(int x, int y, bool /*bDown*/)
 	pos.x += 63;
 	this->m_context_menu->Show();
 	this->m_context_menu->SetPos(pos);
+
+	this->ac_menu->Hide();
 }
 
 const int bp_bar_size = 18;
 void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 {
+	this->ac_menu->Hide();
 	this->m_context_menu->Hide();
 
 	if (m_bSelectAll)
@@ -1010,6 +1090,8 @@ void TextBoxCode::AddUndoableAction(Action a)
 
 bool TextBoxCode::OnKeyReturn(bool bDown)
 {
+	//todo, if the ac menu is showing add the selected item
+	ac_menu->Hide();
 	if (bDown)
 	{
 		this->AddUndoableAction({ this->m_iCursorLine, this->m_iCursorPos, 1, L"\n" });
@@ -1252,7 +1334,8 @@ void TextBoxCode::Render(Skin::Base* skin)
 	};
 	const Gwen::Color styles[] = { Gwen::Color(0, 0, 0, 255), Gwen::Color(0, 0, 255, 255), Gwen::Color(255, 0, 0, 255), Gwen::Color(0, 153, 0, 255) };
 
-
+	Gwen::UnicodeString str;
+	str.push_back(0);
 	float width = skin->GetRender()->MeasureText(GetFont(), "W").x;
 	int max_chars = this->Width() / width + 2;
 	for (int i = m_scroll; i < Min<int>(m_scroll + numbers2draw, this->m_lines.size()); i++)
@@ -1418,8 +1501,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 		}
 
 		//draw each character
-		Gwen::UnicodeString str;
-		str.push_back(0);
+		
 		int offset = 0;
 		for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
 		{

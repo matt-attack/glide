@@ -1,12 +1,7 @@
-/*
-	GWEN
-	Copyright (c) 2010 Facepunch Studios
-	See license in Gwen.h
-	*/
 
 #pragma once
-#ifndef GWEN_CONTROLS_TEXTBOX_H
-#define GWEN_CONTROLS_TEXTOX_H
+#ifndef GWEN_CONTROLS_TEXTBOXCODE_H
+#define GWEN_CONTROLS_TEXTBOXCODE_H
 
 #include "Gwen/BaseRender.h"
 #include "Gwen/Controls/Base.h"
@@ -17,6 +12,7 @@ namespace Gwen
 {
 	namespace Controls
 	{
+		class ListBox;
 		class Menu;
 		class GWEN_EXPORT TextBoxCode : public Label
 		{
@@ -27,9 +23,11 @@ namespace Gwen
 			struct Line
 			{
 				Gwen::UnicodeString	m_Unicode;
-				std::vector<int> styles;
+				std::vector<char> styles;
 				bool dirty = true;
 				bool is_comment = false;
+				bool width_dirty = false;
+				int width = 0;
 			};
 			std::list<Line> m_lines;
 
@@ -45,7 +43,7 @@ namespace Gwen
 			virtual bool OnChar(Gwen::UnicodeChar c);
 
 			virtual void InsertText(const Gwen::UnicodeString & str);
-			virtual void DeleteText(int iStartPos, int iStartLine, int iLength);
+			virtual Gwen::UnicodeString DeleteText(int iStartPos, int iStartLine, int iLength);
 
 			virtual void RefreshCursorBounds();
 
@@ -86,7 +84,7 @@ namespace Gwen
 
 			virtual void OnMouseDoubleClickLeft(int x, int y);
 
-			virtual void EraseSelection();
+			virtual void EraseSelection(bool undoable = true);
 			virtual bool HasSelection();
 			virtual UnicodeString GetSelection();
 
@@ -111,6 +109,8 @@ namespace Gwen
 
 			virtual void MoveCaretToEnd();
 			virtual void MoveCaretToStart();
+
+			std::list<TextBoxCode::Line>::iterator GetLine(unsigned int line);
 
 			void GoToLine(int l);
 
@@ -181,6 +181,7 @@ namespace Gwen
 			Gwen::Controls::HorizontalScrollBar* m_hbar;
 			Gwen::Controls::VerticalScrollBar* m_vbar;
 			Gwen::Controls::Menu* m_context_menu;
+			Gwen::Controls::ListBox* ac_menu;//autocomplete menu
 
 			//for undo/redo
 			struct Action

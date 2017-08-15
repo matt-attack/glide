@@ -1,13 +1,7 @@
-/*
-	GWEN
-	Copyright (c) 2011 Facepunch Studios
-	See license in Gwen.h
-*/
-
 
 #pragma once
-#ifndef GWEN_UNITTEST_UNITTEST_H
-#define GWEN_UNITTEST_UNITTEST_H
+#ifndef IDE_H
+#define IDE_H
 
 #include "Gwen/Gwen.h"
 #include "Gwen/Align.h"
