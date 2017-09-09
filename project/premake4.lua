@@ -1,6 +1,6 @@
 dofile( "inc/include.lua" )
 
-solution "GWEN"
+solution "IDE"
 
 	language "C++"
 	location ( os.get() .. "/" .. _ACTION )
@@ -69,8 +69,9 @@ DefineRenderer( "Allegro",
 if ( os.get() == "windows" ) then
 	DefineRenderer( "DirectX9",
                     { "../../gwen/Renderers/DirectX9/DirectX9.cpp" } )
-	includedirs { "$(DXSDK_DIR)/Include" }
-	libdirs { "$(DXSDK_DIR)/lib/x86" }
+	configuration( "Release" )
+		includedirs { "$(DXSDK_DIR)/Include" }
+		libdirs { "$(DXSDK_DIR)/lib/x86" }
 
 	DefineRenderer( "Direct2D",
                     { "../../gwen/Renderers/Direct2D/Direct2D.cpp" } )

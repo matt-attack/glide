@@ -20,16 +20,48 @@ namespace Gwen
 
 			virtual ~TextBoxCode();
 			
+			enum LineState
+			{
+				None = 0,
+				//if I can be affected by compaction
+				Compacter = 1,//put a box by me to control it
+				Compactee = 2,//get changed by box above me
+
+				//actual state
+				Compacted = 4,//or'd in if box above me was checked, and'ed out if opposite
+			};
+
+			
+
+			struct Fold;
 			struct Line
 			{
 				Gwen::UnicodeString	m_Unicode;
 				std::vector<char> styles;
 				bool dirty = true;
 				bool is_comment = false;
-				bool width_dirty = false;
+				bool width_dirty = true;
+				//highest level is 0 lowest is 14
+				//CompactionLevel is zero if not in any{} block(aka top level code)
+				Fold* fold = 0;
+				//short fold_level = 0;// bit 0 is used for if root or not, bits 1 - 15 are used for specifying the level of recursion it belongs to
+				//short fold_state = 0;// bit 1 - 15 represent the state of each recusion level(limited to 15)
+				//if this is anything but zero, dont render me
+				//char state = LineState::None;
 				int width = 0;
 			};
 			std::list<Line> m_lines;
+
+			struct Fold
+			{
+				Fold* parent;
+				bool folded = true;
+				bool parent_folded = false;
+				//std::list<Line>::iterator start, end;
+				Line* start;
+				Line* end;
+				std::vector<Fold*> folds;
+			};
 
 			virtual void Render(Skin::Base* skin);
 			virtual void RenderFocus(Gwen::Skin::Base* /*skin*/) {};
@@ -99,7 +131,7 @@ namespace Gwen
 
 			virtual void SetSelectAllOnFocus(bool b) { m_bSelectAll = b; if (b) { OnSelectAll(this); } }
 
-			void GetCharacterAtPoint(int x, int y, int& line, int& column);
+			std::list<Line>::iterator GetCharacterAtPoint(int x, int y, int& line, int& column);
 
 			virtual void MakeCaratVisible();
 
@@ -190,6 +222,7 @@ namespace Gwen
 				int pos;
 				int length;//if < 0 it was deleted
 				std::wstring text;//the text either added or deleted
+				bool do_next = false;//for insert/delete at same time
 			};
 			std::deque<Action> action_list;
 

@@ -134,6 +134,11 @@ void TextBoxCode::OnUndo(Gwen::Controls::Base*)
 	}
 	this->action_list.pop_back();
 
+	if (action.do_next)
+	{
+		this->OnUndo(0);
+	}
+
 	if (this->action_list.size() == 0)
 	{
 		this->modified = false;
@@ -187,12 +192,22 @@ bool TextBoxCode::OnChar(Gwen::UnicodeChar c)
 	ac_menu->SetPos(p.x + this->GetSidebarWidth(), (m_iCursorLine - m_scroll + 1)*this->GetFont()->size + 2);
 	ac_menu->SetSize(100, 100);
 
+
 	Gwen::UnicodeString str;
 	str += c;
 
-	this->AddUndoableAction({ this->m_iCursorLine, this->m_iCursorPos, 1, str });
+	bool sel = this->HasSelection();
+
+	Action act;
+	act.line = this->m_iCursorLine;
+	act.pos = this->m_iCursorPos;
+	act.length = 1;
+	act.text = str;
+	act.do_next = sel;
 
 	InsertText(str);
+	
+	this->AddUndoableAction(act);
 	return true;
 }
 
@@ -232,7 +247,7 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 	needs_width_update = true;
 
 	if (HasSelection())
-		EraseSelection(false);
+		EraseSelection(true);
 
 	this->modified = true;
 
@@ -427,6 +442,8 @@ int TextBoxCode::TextWidth()
 		this->needs_width_update = false;
 		return width;
 	}
+	
+	//todo: abstract font size out of this
 	//float width = this->GetSkin()->GetRender()->MeasureText(GetFont(), "W").x;
 	return this->text_width;// *;
 }
@@ -435,7 +452,13 @@ void TextBoxCode::OnPaste(Gwen::Controls::Base* /*pCtrl*/)
 {
 	auto text = Platform::GetClipboardText();
 
-	this->AddUndoableAction({ this->m_iCursorLine, this->m_iCursorPos, text.length(), text });
+	Action act;
+	act.line = this->m_iCursorLine;
+	act.pos = this->m_iCursorPos;
+	act.length = text.length();
+	act.text = text;
+	act.do_next = false;
+	this->AddUndoableAction(act);
 
 	//todo: remove all /r
 	InsertText(text);
@@ -465,7 +488,7 @@ void TextBoxCode::OnSelectAll(Gwen::Controls::Base* /*pCtrl*/)
 	RefreshCursorBounds();
 }
 
-void TextBoxCode::GetCharacterAtPoint(int x, int y, int& line, int& column)
+std::list<TextBoxCode::Line>::iterator TextBoxCode::GetCharacterAtPoint(int x, int y, int& line, int& column)
 {
 	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
 	line = pos.y / this->GetFont()->size;
@@ -479,7 +502,24 @@ void TextBoxCode::GetCharacterAtPoint(int x, int y, int& line, int& column)
 	//ok, lets look at the line to see where we are in it
 	auto t = this->m_lines.begin();
 	for (int i = 0; i < line; i++)
-		t++;
+	{
+		if (t->fold && (t->fold->folded || t->fold->parent_folded) && t->fold->end)
+		{
+			auto end = t->fold->end;
+			auto ff = t->fold;
+			while (t->fold == ff)//&t._Ptr->_Myval != end)
+			{
+				t++;
+				line++;
+				i++;
+			}
+			//t++;
+			//t++;
+			//t = t->fold->end;
+		}
+		//else
+			t++;
+	}
 
 	int offset = 0;
 	for (int i = 0; i < t->m_Unicode.length(); i++)
@@ -504,6 +544,7 @@ void TextBoxCode::GetCharacterAtPoint(int x, int y, int& line, int& column)
 		iChar = 0;
 
 	column = iChar;
+	return t;
 }
 
 //another useful feature would be to select other words on the page like the one you are inside of
@@ -859,13 +900,14 @@ void TextBoxCode::EraseSelection(bool undoable)
 	if (m_iCursorEndLine == m_iCursorLine)
 	{
 		Gwen::UnicodeString str = DeleteText(iStart, iStartLine, iEnd - iStart);
-		if (undoable)
+		//if (undoable)
 		{
 			Action act;
 			act.line = iStartLine;
 			act.pos = iStart;
 			act.text = str;
 			act.length = -(iEnd - iStart);
+			act.do_next = !undoable;
 			this->AddUndoableAction(act);
 		}
 	}
@@ -964,11 +1006,26 @@ void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 	}
 
 	int line, iChar;
-	this->GetCharacterAtPoint(x, y, line, iChar);
+	auto linep = this->GetCharacterAtPoint(x, y, line, iChar);
 	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
 	//make it so people can add breakpoints then call
 	//but dont add the breakpoint icon here, let our parent do that after the command completes
-	if (pos.x < 0 && bDown)
+	if (pos.x < -20 && bDown)
+	{
+		linep++;
+		if (linep->fold && linep->fold->start == &linep._Ptr->_Myval)
+		{
+			linep->fold->folded = !linep->fold->folded;// true;
+
+			//propagate down
+			for (auto& ii : linep->fold->folds)
+			{
+				ii->parent_folded = linep->fold->folded;
+			}
+		}
+		return;
+	}
+	else if (pos.x < 0 && bDown)
 	{
 		Gwen::Event::Information info;
 		info.Integer = line + 1;
@@ -1112,7 +1169,13 @@ bool TextBoxCode::OnKeyReturn(bool bDown)
 	ac_menu->Hide();
 	if (bDown)
 	{
-		this->AddUndoableAction({ this->m_iCursorLine, this->m_iCursorPos, 1, L"\n" });
+		Action act;
+		act.line = this->m_iCursorLine;
+		act.pos = this->m_iCursorPos;
+		act.length = 1;
+		act.text = L"\n";
+		act.do_next = false;
+		this->AddUndoableAction(act);
 		InsertText(L"\n");
 	}
 
@@ -1352,11 +1415,15 @@ void TextBoxCode::Render(Skin::Base* skin)
 	};
 	const Gwen::Color styles[] = { Gwen::Color(0, 0, 0, 255), Gwen::Color(0, 0, 255, 255), Gwen::Color(255, 0, 0, 255), Gwen::Color(0, 153, 0, 255) };
 
+	skin->GetRender()->SetDrawColor(Gwen::Color(255, 255, 255, 255));
+	skin->GetRender()->DrawFilledRect(Gwen::Rect(1, 1, hoffset - 2 - bp_bar_size, this->GetSize().y - 2));
+
 	Gwen::UnicodeString str;
 	str.push_back(0);
 	float width = skin->GetRender()->MeasureText(GetFont(), "W").x;
 	int max_chars = this->Width() / width + 2;
-	for (int i = m_scroll; i < Min<int>(m_scroll + numbers2draw, this->m_lines.size()); i++)
+	int bottom_line = Min<int>(m_scroll + numbers2draw, this->m_lines.size());
+	for (int i = m_scroll; i < bottom_line; i++)
 	{
 		//highlight the text, then we can render it below
 		if (line_iterator->dirty)
@@ -1408,10 +1475,11 @@ void TextBoxCode::Render(Skin::Base* skin)
 			}*/
 			//SETUP GIT FINALLY
 			//add unsaved icon
-			//	fix editing stuff
-			//	more undo stuff
+			//fix editing stuff
+			//more undo stuff
 			//parse debug var info
 			//need to do a pass looking for numbers
+			//line_iterator->fold_level &= ~1;
 			bool last_was_letter = false;
 			for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
 			{
@@ -1423,7 +1491,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 				else
 					last_was_letter = false;
 			}
-
+			
 			//do a pass looking for keywords
 			bool was_space = true;
 			for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
@@ -1463,6 +1531,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 			//look for comments and strings
 			bool in_line_comment = false;
 			bool in_string = false;
+			int fold = 0;
 			for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
 			{
 				auto c = line_iterator->m_Unicode[i];
@@ -1502,9 +1571,116 @@ void TextBoxCode::Render(Skin::Base* skin)
 					line_iterator->styles[i] = Styles::Comment;
 				else if (in_string)
 					line_iterator->styles[i] = Styles::String;
+				else
+				{
+					//look for folds
+					if (c == '{')
+					{
+						fold++;
+					}
+					else if (c == '}')
+					{
+						fold--;
+					}
+				}
 			}
 
+			if (fold > 0)
+			{
+				//open a fold
+				//dont change anything if we have a fold with us as the parent
+				if (line_iterator->fold && line_iterator->fold->start == &line_iterator._Ptr->_Myval)
+				{
+					//ok, lets add indicators/fold buttons then get started
+				}
+				else
+				{
+					if (prev_iterator->fold && prev_iterator->fold->end != &prev_iterator._Ptr->_Myval)
+						line_iterator->fold = prev_iterator->fold;
 
+					//insert new fold
+					Fold* f = new Fold;
+					f->start = &line_iterator._Ptr->_Myval;
+					f->parent = line_iterator->fold;
+					f->folded = false;
+
+					if (f->parent)
+						f->parent->folds.push_back(f);
+
+					//todo add fold button
+					//stupid test line
+					//if (f->parent)
+					//	f->folded = true;
+
+					//todo look for the end!
+					f->end = 0;
+					line_iterator->fold = f;
+				}
+			}
+			else if (fold < 0)
+			{
+				//todo close folds
+				if (prev_iterator->fold && prev_iterator->fold->end != &prev_iterator._Ptr->_Myval)
+					line_iterator->fold = prev_iterator->fold;
+				else if (prev_iterator->fold && prev_iterator->fold->end == &prev_iterator._Ptr->_Myval)
+					line_iterator->fold = prev_iterator->fold->parent;
+
+				if (line_iterator->fold)
+				{
+					//end it!
+					line_iterator->fold->end = &line_iterator._Ptr->_Myval;
+				}
+			}
+			else
+			{
+				//if we have a fold and its owned by us, close it
+				if (line_iterator->fold && line_iterator->fold->start == &line_iterator._Ptr->_Myval)
+				{
+					//remove the fold!
+					//instead of doing this lets do a lazy deletion, simply mark it as needing to be removed then the last holder can delete it
+					if (line_iterator->fold->end)
+					{
+						auto it = line_iterator;
+						it++;
+						do
+						{
+							if (it->fold == line_iterator->fold)
+								it->fold = it->fold->parent;
+
+							it++;
+						} while (&it._Ptr->_Myval != line_iterator->fold->end);
+					}
+
+					//remove me from my parent
+					if (line_iterator->fold->parent)
+					{
+						std::vector<Fold*> tfolds;
+						for (auto ii : line_iterator->fold->parent->folds)
+						{
+							if (ii != line_iterator->fold)
+								tfolds.push_back(ii);
+						}
+						line_iterator->fold->parent->folds = tfolds;
+					}
+					
+					delete line_iterator->fold;
+					line_iterator->fold = 0;
+				}
+				else
+				{
+					//make our fold the same as prev if prev isnt the end
+					if (prev_iterator->fold && prev_iterator->fold->end != &prev_iterator._Ptr->_Myval)
+					{
+						line_iterator->fold = prev_iterator->fold;
+					}
+					else if (prev_iterator->fold && prev_iterator->fold->end == &prev_iterator._Ptr->_Myval)
+					{
+						line_iterator->fold = prev_iterator->fold->parent;
+					}
+				}
+			}
+
+			//finish implementing compaction
 			//check if next line
 			auto next = line_iterator; next++;
 			if (next != this->m_lines.end())
@@ -1518,8 +1694,43 @@ void TextBoxCode::Render(Skin::Base* skin)
 			line_iterator->dirty = false;
 		}
 
-		//draw each character
+		if (line_iterator->fold && (line_iterator->fold->folded || line_iterator->fold->parent_folded))
+		{
+			line_iterator++;
+			prev_iterator++;
+			
+			bottom_line++;
+			if (bottom_line > this->m_lines.size())
+				bottom_line = this->m_lines.size();
+			continue;
+		}
+
+		skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));
+
+		//render box to + or - code
+		auto next = line_iterator;
+		next++;
+		if (next->fold && next->fold->start == &next._Ptr->_Myval)
+			if (next->fold->folded)
+				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - 35, 2 + pos*fsize), "+");
+			else
+				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - 35, 2 + pos*fsize), "-");
+
+		//todo handle when { is on the line we want the +/- on
+
+			//then fix editing when something is minimized
+
+		//if (line_iterator->fold && line_iterator->fold->start == &line_iterator._Ptr->_Myval)
+		//	skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - 35, 2 + pos*fsize), "+");
+		/*if (line_iterator->fold)
+		{
+			if (line_iterator->fold->parent)
+				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - 35, 2 + pos*fsize), "-");
+			else
+				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - 35, 2 + pos*fsize), "~");
+		}*/
 		
+		//draw each character
 		int offset = 0;
 		for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
 		{
@@ -1546,14 +1757,18 @@ void TextBoxCode::Render(Skin::Base* skin)
 		}
 		//skin->GetRender()->RenderText(GetFont(), Gwen::PointF(4 + hoffset - this->m_hscroll, 2 + pos*fsize), line_iterator->m_Unicode);
 
+		//draw line number
+		skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));
+		skin->GetRender()->RenderText(GetFont(), Gwen::PointF(4, 2 + pos*fsize), std::to_string(i + 1));
+
 		if (i != 0)
 			prev_iterator++;
-		line_iterator++;
+		line_iterator = next;// ++;
 		pos++;
 	}
 
-	skin->GetRender()->SetDrawColor(Gwen::Color(255, 255, 255, 255));
-	skin->GetRender()->DrawFilledRect(Gwen::Rect(1, 1, hoffset - 2 - bp_bar_size, this->GetSize().y - 2));
+	//skin->GetRender()->SetDrawColor(Gwen::Color(255, 255, 255, 255));
+	//skin->GetRender()->DrawFilledRect(Gwen::Rect(1, 1, hoffset - 2 - bp_bar_size, this->GetSize().y - 2));
 
 	//draw line for breakpoints
 	skin->GetRender()->SetDrawColor(Gwen::Color(150, 150, 150, 255));
@@ -1596,11 +1811,11 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 
 	//draw line numbers
-	skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));
+	//skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));
 
-	pos = 0;
-	for (int i = m_scroll; i < Min<int>(m_scroll + numbers2draw, this->m_lines.size()); i++)
-		skin->GetRender()->RenderText(GetFont(), Gwen::PointF(4, 2 + pos++*fsize), std::to_string(i + 1));// m_String.GetUnicode());
+	//pos = 0;
+	//for (int i = m_scroll; i < Min<int>(m_scroll + numbers2draw, this->m_lines.size()); i++)
+	//	skin->GetRender()->RenderText(GetFont(), Gwen::PointF(4, 2 + pos++*fsize), std::to_string(i + 1));// m_String.GetUnicode());
 }
 
 void TextBoxCode::MakeCaratVisible()
@@ -1703,7 +1918,13 @@ bool TextBoxCode::OnKeyTab(bool bDown)
 	if (bDown)
 	{
 		//todo make this handle when we have a selection
-		this->AddUndoableAction({ this->m_iCursorLine, this->m_iCursorPos, 1, L"\t" });
+		Action act;
+		act.line = this->m_iCursorLine;
+		act.pos = this->m_iCursorPos;
+		act.length = 1;
+		act.text = L"\t";
+		act.do_next = false;
+		this->AddUndoableAction(act);
 		this->InsertText(L"\t");
 
 		RefreshCursorBounds();
