@@ -198,15 +198,23 @@ void IDE::OnProjectOpen(Gwen::Event::Info info)
 
 	if (extension == ".jp")
 	{
-		printf("");
-
 		auto project = new JetProject;
 		project->Open(name.c_str());
 
-		Gwen::Controls::TreeNode* pNode = file_list->AddNode(project->GetProjectFolder());
+		std::string short_name = project->GetProjectFolder();
+		int p = short_name.find_last_of('\\')+1;
+		if (p > 0)
+			short_name = short_name.substr(p, short_name.length() - p);
+		Gwen::Controls::TreeNode* pNode = file_list->AddNode(short_name);// project->GetProjectFolder());
 		pNode->SetImage(L"icons/folder.png");
+		pNode->SetText(pNode->GetText().GetUnicode() + L" (Active)");
+		pNode->UserData.Set<std::string>("path", project->GetProjectFolder());
 
+		//	highlight active project in file window and allow changing
 		find_files(Gwen::Utility::StringToUnicode(project->GetProjectFolder()).c_str(), pNode, this);
+
+		//keep track of all open projects and set the new one as active
+		this->projects.push_back(project);
 
 		this->active_project = project;
 	}
@@ -214,8 +222,25 @@ void IDE::OnProjectOpen(Gwen::Event::Info info)
 	{
 
 	}
-	printf("");
+}
 
+void IDE::RefreshFiles()
+{
+	//todo: speed this up or thread it 
+	auto children = file_list->GetChildNodes();
+	for (auto ii : children)
+	{
+		auto path = ii->UserData.Get<std::string>("path");
+		auto tn = (Gwen::Controls::TreeNode*)ii;
+		
+		auto nodes = tn->GetChildNodes();
+		for (auto p : nodes)
+		{
+			p->DelayedDelete();
+		}
+
+		find_files(Gwen::Utility::StringToUnicode(path).c_str(), (Gwen::Controls::TreeNode*)ii, this);
+	}
 }
 
 
@@ -229,6 +254,10 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 	else if (pMenuItem->GetText() == L"New")
 	{
 		this->OpenNewTab();
+	}
+	else if (pMenuItem->GetText() == L"Refresh Files")
+	{
+		this->RefreshFiles();
 	}
 	else if (pMenuItem->GetText() == L"Save")
 	{
@@ -268,15 +297,15 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 	}
 	else if (pMenuItem->GetText() == L"Open")
 	{
-		Gwen::Dialogs::FileOpen(true, String("Hi"), String(""), String("All|*.*|.h|*.h"), this, &ThisClass::OnFileOpen);
+		Gwen::Dialogs::FileOpen(true, String("Open File"), String(""), String("All|*.*|.h|*.h"), this, &ThisClass::OnFileOpen);
 	}
 	else if (pMenuItem->GetText() == L"Open Folder")
 	{
-		Gwen::Dialogs::FolderOpen(true, String("Hi"), String(""), this, &ThisClass::OnFolderOpen);
+		Gwen::Dialogs::FolderOpen(true, String("Open Folder"), String(""), this, &ThisClass::OnFolderOpen);
 	}
 	else if (pMenuItem->GetText() == L"Open Project")
 	{
-		Gwen::Dialogs::FileOpen(true, String("Hi"), String(""), String(".jp|*.jp|All|*.*"), this, &ThisClass::OnProjectOpen);
+		Gwen::Dialogs::FileOpen(true, String("Open Project"), String(""), String(".jp|*.jp|All|*.*"), this, &ThisClass::OnProjectOpen);
 	}
 	else if (pMenuItem->GetText() == L"Start Debugging")
 	{
@@ -1013,6 +1042,8 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 		pRoot->GetMenu()->AddItem(L"Save", "icons/disk.png", "Ctrl+S")->SetAction(this, &ThisClass::MenuItemSelect);
 		pRoot->GetMenu()->AddItem(L"Save As...", "", "Ctrl+Shift+S")->SetAction(this, &ThisClass::MenuItemSelect);
 		pRoot->GetMenu()->AddItem(L"Quit", "", "Ctrl+Q")->SetAction(this, &ThisClass::MenuItemSelect);
+
+		pRoot->GetMenu()->AddItem(L"Refresh Files", "", "")->SetAction(this, &ThisClass::MenuItemSelect);
 	}
 	{
 		Gwen::Controls::MenuItem* pRoot = menu->AddItem(L"Edit");

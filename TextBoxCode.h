@@ -8,6 +8,7 @@
 #include "Gwen/Controls/Label.h"
 #include "Gwen/Controls/ScrollControl.h"
 
+//todo implement basically this with a ui interface https://msdn.microsoft.com/en-us/library/jj620914.aspx?f=255&MSPPError=-2147217396
 namespace Gwen
 {
 	namespace Controls
@@ -18,20 +19,7 @@ namespace Gwen
 		{
 			GWEN_CONTROL(TextBoxCode, Label);
 
-			virtual ~TextBoxCode();
-			
-			enum LineState
-			{
-				None = 0,
-				//if I can be affected by compaction
-				Compacter = 1,//put a box by me to control it
-				Compactee = 2,//get changed by box above me
-
-				//actual state
-				Compacted = 4,//or'd in if box above me was checked, and'ed out if opposite
-			};
-
-			
+			virtual ~TextBoxCode();			
 
 			struct Fold;
 			struct Line
@@ -44,10 +32,7 @@ namespace Gwen
 				//highest level is 0 lowest is 14
 				//CompactionLevel is zero if not in any{} block(aka top level code)
 				Fold* fold = 0;
-				//short fold_level = 0;// bit 0 is used for if root or not, bits 1 - 15 are used for specifying the level of recursion it belongs to
-				//short fold_state = 0;// bit 1 - 15 represent the state of each recusion level(limited to 15)
-				//if this is anything but zero, dont render me
-				//char state = LineState::None;
+				
 				int width = 0;
 			};
 			std::list<Line> m_lines;
@@ -87,6 +72,8 @@ namespace Gwen
 			virtual bool OnKeyHome(bool bDown);
 			virtual bool OnKeyEnd(bool bDown);
 			virtual bool OnKeyTab(bool bDown);
+
+			virtual bool OnKeyPress(int iKey, bool bPress = true);
 
 
 			virtual void SetText(const char* text, unsigned int len);

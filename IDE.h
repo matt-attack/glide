@@ -80,6 +80,7 @@ class IDE : public Gwen::Controls::DockBase
 
 	private:
 		IProjectFormat* active_project = 0;
+		std::vector<IProjectFormat*> projects;
 
 		void ProcessMessages();
 
@@ -89,6 +90,8 @@ class IDE : public Gwen::Controls::DockBase
 		void OnFileSave(Gwen::Event::Info info);
 		void OnBreakpointAdd(Gwen::Event::Info info);
 		void OnCloseTab(Gwen::Controls::Base* pControl);
+
+		void RefreshFiles();
 
 		Gwen::Controls::TextBoxCode* GetCurrentEditor();
 		

@@ -385,7 +385,27 @@ void TextBoxCode::RefreshCursorBounds()
 			return;
 		}
 	}
-	m_rectCaretBounds.y = m_iCursorLine*this->GetFont()->size + 2;
+
+	auto tt = this->m_lines.begin();
+	int diff = 0;
+	for (int i = 0; i < m_iCursorLine; i++)
+	{
+		if (tt->fold && (tt->fold->folded && (tt->fold->start != &t._Ptr->_Myval) || tt->fold->parent_folded) && tt->fold->end)
+		{
+			auto end = tt->fold->end;
+			auto ff = tt->fold;
+			while (tt->fold == ff)
+			{
+				tt++;
+				i++;
+				diff++;
+			}
+		}
+		tt++;
+	}
+	if (diff > 0)
+		diff -= 1;
+	m_rectCaretBounds.y = (m_iCursorLine - diff)*this->GetFont()->size + 2;
 	m_rectCaretBounds.w = 1;
 	m_rectCaretBounds.h = this->GetFont()->size;
 
@@ -503,22 +523,18 @@ std::list<TextBoxCode::Line>::iterator TextBoxCode::GetCharacterAtPoint(int x, i
 	auto t = this->m_lines.begin();
 	for (int i = 0; i < line; i++)
 	{
-		if (t->fold && (t->fold->folded || t->fold->parent_folded) && t->fold->end)
+		if (t->fold && (t->fold->folded && (t->fold->start != &t._Ptr->_Myval) || t->fold->parent_folded) && t->fold->end)
 		{
 			auto end = t->fold->end;
 			auto ff = t->fold;
-			while (t->fold == ff)//&t._Ptr->_Myval != end)
+			while (t->fold == ff)
 			{
 				t++;
 				line++;
 				i++;
 			}
-			//t++;
-			//t++;
-			//t = t->fold->end;
 		}
-		//else
-			t++;
+		t++;
 	}
 
 	int offset = 0;
@@ -528,7 +544,7 @@ std::list<TextBoxCode::Line>::iterator TextBoxCode::GetCharacterAtPoint(int x, i
 		if (c == '\t')
 			offset = offset + (4 - offset % 4);//then round to the next greater 4th space
 
-		float xoff = m_hscroll + offset++*f_width;
+		float xoff = -m_hscroll + offset++*f_width;
 		if (xoff > pos.x - f_width)// / 4000)
 		{
 			iChar = i - 1;// offset - 1;
@@ -1012,8 +1028,10 @@ void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 	//but dont add the breakpoint icon here, let our parent do that after the command completes
 	if (pos.x < -20 && bDown)
 	{
-		linep++;
-		if (linep->fold && linep->fold->start == &linep._Ptr->_Myval)
+		//linep++;//if the fold is supposed to start on the next line, 
+	//todo: sometimes we want it on the same line
+		//fix selection and editing
+		if (linep->fold && linep->fold->start == &linep._Ptr->_Myval) 
 		{
 			linep->fold->folded = !linep->fold->folded;// true;
 
@@ -1021,6 +1039,8 @@ void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 			for (auto& ii : linep->fold->folds)
 			{
 				ii->parent_folded = linep->fold->folded;
+
+				//todo: do it for each of their children too
 			}
 		}
 		return;
@@ -1066,7 +1086,7 @@ void TextBoxCode::OnMouseMoved(int x, int y, int /*deltaX*/, int /*deltaY*/)
 {
 	if (Gwen::MouseFocus != this) { return; }
 
-	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
+	/*auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
 	int line = pos.y / this->GetFont()->size;
 	line += this->m_scroll;
 	float f_width = ((float)this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "W").x) / 1.0f;
@@ -1102,12 +1122,12 @@ void TextBoxCode::OnMouseMoved(int x, int y, int /*deltaX*/, int /*deltaY*/)
 				iChar = i + 1;
 	}
 	if (iChar < 0)
-		iChar = 0;
+		iChar = 0;*/
 
+	int iChar;
+	this->GetCharacterAtPoint(x, y, this->m_iCursorLine, iChar);
 
 	SetCursorPos(this->m_iCursorLine, iChar);
-	//int iChar = m_Text->GetClosestCharacter(m_Text->CanvasPosToLocal(Gwen::Point(x, y)));
-	//SetCursorPos(iChar);
 }
 
 void TextBoxCode::Layout(Skin::Base* skin)
@@ -1236,6 +1256,7 @@ int TextBoxCode::GetSidebarWidth()
 		hoffset += fsize*0.7;
 	if (num_lines >= 1000)
 		hoffset += fsize*0.7;
+	hoffset += fsize*0.9;
 	return hoffset;
 }
 
@@ -1302,21 +1323,44 @@ void TextBoxCode::Render(Skin::Base* skin)
 		skin->GetRender()->SetDrawColor(Gwen::Color(50, 170, 255, 200));
 		m_rectSelectionBounds.h = m_Text->GetFont()->size + 2;
 
-		float f_width = ((float)this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "WWWWWWWWWW").x) / 10.0f;
+		float f_width = ((float)this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "W").x);// / 10.0f;
 
+		auto t = this->m_lines.begin();
+		for (int i = 0; i < iSelectionStartLine; i++)
+			t++;
+
+		auto tt = this->m_lines.begin();
+		int diff = 0;
+		for (int i = 0; i < iSelectionStartLine; i++)
+		{
+			if (tt->fold && (tt->fold->folded && (tt->fold->start != &t._Ptr->_Myval) || tt->fold->parent_folded) && tt->fold->end)
+			{
+				auto end = tt->fold->end;
+				auto ff = tt->fold;
+				while (tt->fold == ff)
+				{
+					tt++;
+					i++;
+					diff++;
+				}
+			}
+			tt++;
+		}
+		if (diff > 0)
+			diff -= 1;
 		for (int iLine = iSelectionStartLine; iLine <= iSelectionEndLine; ++iLine)
 		{
 			Gwen::Rect box;
 			box.w = this->Width();
 			box.h = fsize;
 			box.x = iSelectionStartPos*f_width;
-			box.y = (iLine - m_scroll)*fsize + 2;
+			box.y = (iLine - m_scroll - diff)*fsize + 2;
 
 			if (iLine == iSelectionStartLine)
 			{
-				auto t = this->m_lines.begin();
+				/*auto t = this->m_lines.begin();
 				for (int i = 0; i < iSelectionStartLine; i++)
-					t++;
+					t++;*/
 
 				int off = 0;
 				for (int i = 0; i < iSelectionStartPos; i++)
@@ -1330,6 +1374,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 			}
 			else
 			{
+				t++;
 				//m_rectSelectionBounds.x = box.x;
 				//m_rectSelectionBounds.y = box.y - 1;
 				box.x = 0;// 4 + hoffset;
@@ -1363,7 +1408,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 			m_rectSelectionBounds.w = 1;
 			}*/
 
-			box.x += 4 + hoffset;// m_Text->X();
+			box.x += 4 + hoffset - m_hscroll;// m_Text->X();
 			box.y += m_Text->Y();
 
 			skin->GetRender()->DrawFilledRect(box);// m_rectSelectionBounds);
@@ -1373,8 +1418,8 @@ void TextBoxCode::Render(Skin::Base* skin)
 	// Draw selection.. if selected..
 	if (m_iCursorPos != m_iCursorEndPos)
 	{
-		skin->GetRender()->SetDrawColor(Gwen::Color(50, 170, 255, 200));
-		skin->GetRender()->DrawFilledRect(m_rectSelectionBounds);
+		//skin->GetRender()->SetDrawColor(Gwen::Color(50, 170, 255, 200));
+		//skin->GetRender()->DrawFilledRect(m_rectSelectionBounds);
 	}
 
 	// Draw caret
@@ -1694,7 +1739,9 @@ void TextBoxCode::Render(Skin::Base* skin)
 			line_iterator->dirty = false;
 		}
 
-		if (line_iterator->fold && (line_iterator->fold->folded || line_iterator->fold->parent_folded))
+		if (line_iterator->fold && ((line_iterator->fold->folded && line_iterator->fold->start != &line_iterator._Ptr->_Myval) || line_iterator->fold->parent_folded)
+			//dont fold the first
+			)
 		{
 			line_iterator++;
 			prev_iterator++;
@@ -1709,12 +1756,12 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 		//render box to + or - code
 		auto next = line_iterator;
-		next++;
-		if (next->fold && next->fold->start == &next._Ptr->_Myval)
+		//next++;
+		if (next != this->m_lines.end() && next->fold && next->fold->start == &next._Ptr->_Myval)
 			if (next->fold->folded)
-				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - 35, 2 + pos*fsize), "+");
+				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - fsize - bp_bar_size, 2 + pos*fsize), "+");
 			else
-				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - 35, 2 + pos*fsize), "-");
+				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - fsize - bp_bar_size, 2 + pos*fsize), "-");
 
 		//todo handle when { is on the line we want the +/- on
 
@@ -1763,7 +1810,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 		if (i != 0)
 			prev_iterator++;
-		line_iterator = next;// ++;
+		line_iterator = ++next;// ++;
 		pos++;
 	}
 
@@ -2079,4 +2126,28 @@ void TextBoxCode::SaveToFile(const Gwen::String& filename)
 		if (line_num++ != (m_lines.size() - 1))
 			f.put('\n');
 	}
+}
+
+bool TextBoxCode::OnKeyPress(int iKey, bool bPress)
+{
+	BaseClass::OnKeyPress(iKey, bPress);
+	if (iKey == Key::PageUp && bPress)
+	{
+		int numbers2draw = Min<int>((this->Height() - 2) / this->GetFont()->size, this->m_lines.size());
+		this->m_scroll -= numbers2draw;
+		if (this->m_scroll < 0)
+			this->m_scroll = 0;
+		this->Invalidate();
+		return true;
+	}
+	else if (iKey == Key::PageDown && bPress)
+	{
+		int numbers2draw = Min<int>((this->Height() - 2) / this->GetFont()->size, this->m_lines.size());
+		this->m_scroll += numbers2draw;
+		if (this->m_scroll >= this->m_lines.size())
+			this->m_scroll = this->m_lines.size() - 1;
+		this->Invalidate();
+		return true;
+	}
+	return false;
 }
