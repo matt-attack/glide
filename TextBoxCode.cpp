@@ -390,11 +390,11 @@ void TextBoxCode::RefreshCursorBounds()
 	int diff = 0;
 	for (int i = 0; i < m_iCursorLine; i++)
 	{
-		if (tt->fold && (tt->fold->folded && (tt->fold->start != &t._Ptr->_Myval) || tt->fold->parent_folded) && tt->fold->end)
+		if (tt->fold && ((tt->fold->folded && (tt->fold->start != &t._Ptr->_Myval)) || tt->fold->parent_folded))
 		{
 			auto end = tt->fold->end;
 			auto ff = tt->fold;
-			while (tt->fold == ff)
+			while (tt->fold == ff || (tt->fold && tt->fold->parent_folded))
 			{
 				tt++;
 				i++;
@@ -403,6 +403,7 @@ void TextBoxCode::RefreshCursorBounds()
 		}
 		tt++;
 	}
+
 	if (diff > 0)
 		diff -= 1;
 	m_rectCaretBounds.y = (m_iCursorLine - diff)*this->GetFont()->size + 2;
@@ -523,11 +524,11 @@ std::list<TextBoxCode::Line>::iterator TextBoxCode::GetCharacterAtPoint(int x, i
 	auto t = this->m_lines.begin();
 	for (int i = 0; i < line; i++)
 	{
-		if (t->fold && (t->fold->folded && (t->fold->start != &t._Ptr->_Myval) || t->fold->parent_folded) && t->fold->end)
+		if (t->fold && ((t->fold->folded && t->fold->start != &t._Ptr->_Myval) || t->fold->parent_folded))//(t->fold->folded && (t->fold->start != &t._Ptr->_Myval) || t->fold->parent_folded) && t->fold->end)
 		{
 			auto end = t->fold->end;
 			auto ff = t->fold;
-			while (t->fold == ff)
+			while (t->fold == ff || (t->fold && t->fold->parent_folded))
 			{
 				t++;
 				line++;
@@ -1008,6 +1009,18 @@ void TextBoxCode::OnMouseClickRight(int x, int y, bool /*bDown*/)
 	this->ac_menu->Hide();
 }
 
+void propagate_folds(bool folded, TextBoxCode::Fold* fold)
+{
+	for (auto& ii : fold->folds)
+	{
+		ii->parent_folded = folded;
+
+		propagate_folds(folded, ii);
+
+		//todo: do it for each of their children too
+	}
+}
+
 const int bp_bar_size = 18;
 void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 {
@@ -1035,14 +1048,11 @@ void TextBoxCode::OnMouseClickLeft(int x, int y, bool bDown)
 		{
 			linep->fold->folded = !linep->fold->folded;// true;
 
-			//propagate down
-			for (auto& ii : linep->fold->folds)
-			{
-				ii->parent_folded = linep->fold->folded;
+			propagate_folds(linep->fold->folded, linep->fold);
 
-				//todo: do it for each of their children too
-			}
+			this->RefreshCursorBounds();
 		}
+		
 		return;
 	}
 	else if (pos.x < 0 && bDown)
@@ -1333,11 +1343,11 @@ void TextBoxCode::Render(Skin::Base* skin)
 		int diff = 0;
 		for (int i = 0; i < iSelectionStartLine; i++)
 		{
-			if (tt->fold && (tt->fold->folded && (tt->fold->start != &t._Ptr->_Myval) || tt->fold->parent_folded) && tt->fold->end)
+			if (tt->fold && ((tt->fold->folded && (tt->fold->start != &t._Ptr->_Myval)) || tt->fold->parent_folded))
 			{
 				auto end = tt->fold->end;
 				auto ff = tt->fold;
-				while (tt->fold == ff)
+				while (tt->fold == ff || (tt->fold && tt->fold->parent_folded))
 				{
 					tt++;
 					i++;
