@@ -524,11 +524,15 @@ std::list<TextBoxCode::Line>::iterator TextBoxCode::GetCharacterAtPoint(int x, i
 	auto t = this->m_lines.begin();
 	for (int i = 0; i < line; i++)
 	{
+		if (t == this->m_lines.end())
+		{
+			break;
+		}
 		if (t->fold && ((t->fold->folded && t->fold->start != &t._Ptr->_Myval) || t->fold->parent_folded))//(t->fold->folded && (t->fold->start != &t._Ptr->_Myval) || t->fold->parent_folded) && t->fold->end)
 		{
 			auto end = t->fold->end;
 			auto ff = t->fold;
-			while (t->fold == ff || (t->fold && t->fold->parent_folded))
+			while (t != this->m_lines.end() && (t->fold == ff || (t->fold && t->fold->parent_folded)))
 			{
 				t++;
 				line++;
@@ -536,6 +540,13 @@ std::list<TextBoxCode::Line>::iterator TextBoxCode::GetCharacterAtPoint(int x, i
 			}
 		}
 		t++;
+	}
+
+	if (t == this->m_lines.end())
+	{
+		line = this->m_lines.size() - 1;
+		column = 0;
+		return --this->m_lines.end();
 	}
 
 	int offset = 0;
@@ -1283,7 +1294,7 @@ std::map<WCHAR, std::vector<std::wstring>> keywords = {
 	{ 'd', { L"do", L"default" } },
 	{ 'l', { L"let" } },
 	{ 'm', { L"match" } },
-	{ 's', { L"struct" } },
+	{ 's', { L"struct", L"sizeof" } },
 	{ 'c', { L"continue" } },
 	{ 'b', { L"break" } },
 	{ 'w', { L"while" } },
@@ -1768,10 +1779,28 @@ void TextBoxCode::Render(Skin::Base* skin)
 		auto next = line_iterator;
 		//next++;
 		if (next != this->m_lines.end() && next->fold && next->fold->start == &next._Ptr->_Myval)
+		{
+			skin->GetRender()->DrawLinedRect(Gwen::Rect(hoffset - fsize - bp_bar_size-1, 2 + pos*fsize + 2, 11, 11));
 			if (next->fold->folded)
 				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - fsize - bp_bar_size, 2 + pos*fsize), "+");
 			else
 				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - fsize - bp_bar_size, 2 + pos*fsize), "-");
+		}
+		else if (next->fold)
+		{
+			auto real_next = next;
+			real_next++;
+			if (real_next != this->m_lines.end() && real_next->fold)
+				skin->GetRender()->DrawFilledRect(Gwen::Rect(hoffset - fsize - bp_bar_size + 4, 2 + pos*fsize, 1, fsize));
+			else
+				skin->GetRender()->DrawFilledRect(Gwen::Rect(hoffset - fsize - bp_bar_size + 4, 2 + pos*fsize, 1, fsize/2));
+			if (next->fold->end == &next._Ptr->_Myval)
+				skin->GetRender()->DrawFilledRect(Gwen::Rect(hoffset - fsize - bp_bar_size + 4, 2 + pos*fsize + fsize/2.0, 6, 1));
+				//skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - fsize - bp_bar_size, 2 + pos*fsize), "\xC0");
+			//else
+				//skin->GetRender()->DrawFilledRect(Gwen::Rect(hoffset - fsize - bp_bar_size + 4, 2 + pos*fsize, 1, fsize));
+				//skin->GetRender()->RenderText(GetFont(), Gwen::PointF(hoffset - fsize - bp_bar_size, 2 + pos*fsize), "|");
+		}
 
 		//todo handle when { is on the line we want the +/- on
 
