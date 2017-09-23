@@ -1,7 +1,6 @@
 /*
-	GWEN
-	Copyright (c) 2010 Facepunch Studios
-	See license in Gwen.h
+	Copyright (c) 2017 Matthew Bries
+	See license
 	*/
 
 #include "IDE.h"
@@ -205,10 +204,24 @@ void IDE::OnProjectOpen(Gwen::Event::Info info)
 		int p = short_name.find_last_of('\\')+1;
 		if (p > 0)
 			short_name = short_name.substr(p, short_name.length() - p);
+
+		// Mark other nodes as not active
+		auto children = file_list->GetChildNodes();
+		for (auto ii : children)
+		{
+			auto path = ii->UserData.Get<std::string>("path");
+			auto tn = (Gwen::Controls::TreeNode*)ii;
+			if (tn->GetText().m_String.find(" (Active)") != 0)
+			{
+				tn->SetText(tn->GetText().m_String.substr(0, tn->GetText().m_String.find(" (Active)")));
+			}
+		}
+
 		Gwen::Controls::TreeNode* pNode = file_list->AddNode(short_name);// project->GetProjectFolder());
 		pNode->SetImage(L"icons/folder.png");
 		pNode->SetText(pNode->GetText().GetUnicode() + L" (Active)");
 		pNode->UserData.Set<std::string>("path", project->GetProjectFolder());
+		
 
 		//	highlight active project in file window and allow changing
 		find_files(Gwen::Utility::StringToUnicode(project->GetProjectFolder()).c_str(), pNode, this);

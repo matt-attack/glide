@@ -42,7 +42,7 @@ namespace Gwen
 				Fold* parent;
 				bool folded = true;
 				bool parent_folded = false;
-				//std::list<Line>::iterator start, end;
+				
 				Line* start;
 				Line* end;
 				std::vector<Fold*> folds;
@@ -135,12 +135,9 @@ namespace Gwen
 
 			void SaveToFile(const Gwen::String& filename);
 
-			//virtual Gwen::Rect GetCharacterPosition(int hl, int vl);
-
 			Event::Caller	onTextChanged;
 			Event::Caller	onReturnPressed;
 			Event::Caller	onBreakpoint;
-
 
 			Gwen::String filename;
 
