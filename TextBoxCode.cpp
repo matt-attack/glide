@@ -515,7 +515,8 @@ void TextBoxCode::OnSelectAll(Gwen::Controls::Base* /*pCtrl*/)
 std::list<TextBoxCode::Line>::iterator TextBoxCode::GetCharacterAtPoint(int x, int y, int& line, int& column)
 {
 	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
-    pos.x = x - this->GetSidebarWidth();
+	//pos -= this->GetSidebarWidth();
+	//pos.x = x - this->GetSidebarWidth() - this->GetPos().x;
 	line = pos.y / this->GetFont()->size;
 	line += this->m_scroll;
 	float f_width = this->GetSkin()->GetRender()->MeasureText(this->GetFont(), "W").x;
@@ -965,6 +966,10 @@ void TextBoxCode::EraseSelection(bool undoable)
 			next++;
 			removed += '\n';
 			removed += t->m_Unicode;
+			if (t->fold && t->fold->end == &t._Ptr->_Myval)
+			{
+				t->fold->end = &start_line._Ptr->_Myval;
+			}
 			this->m_lines.erase(t);
 			t = next;
 		}
@@ -973,6 +978,10 @@ void TextBoxCode::EraseSelection(bool undoable)
 		t->dirty = true;
 		removed += '\n';
 		removed += t->m_Unicode.substr(0, iEnd);
+		if (t->fold && t->fold->end == &t._Ptr->_Myval)
+		{
+			t->fold->end = &start_line._Ptr->_Myval;
+		}
 		t->m_Unicode.erase(0, iEnd);
 		//DeleteText(0, iStartLine+1, iEnd);
 
@@ -1197,6 +1206,7 @@ void TextBoxCode::SetText(const char* text, unsigned int len)
 	std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
 
 	auto str = converter.from_bytes(text, text + len);
+	//todo: detect failure here and recover
 
 	auto ptr = str.c_str();
 	//also need to indicate if file has changed in the tab name
@@ -1250,32 +1260,11 @@ std::wregex e(L"-?(?:\\d*\\.)?\\d+", std::regex_constants::optimize);
 std::wregex num(L"\\b(for|do|if|else|while|case|break|return|fun|let|struct|extern|typedef|continue|union|match|default|this)");
 std::wregex comment(L"\\/{2}.*");
 
-std::map<WCHAR, std::vector<std::wstring>> keywords = {
-	{ 'f', { L"for", L"fun", L"free" } },
-	{ 'i', { L"if" } },
-	{ 'd', { L"do", L"default" } },
-	{ 'l', { L"let" } },
-	{ 'm', { L"match" } },
-	{ 's', { L"struct", L"sizeof" } },
-	{ 'c', { L"continue" } },
-	{ 'b', { L"break" } },
-	{ 'w', { L"while" } },
-	{ 'u', { L"union" } },
-	{ 'n', { L"namespace", L"new" } },
-	{ 'e', { L"extern", L"else" } },
-	{ 't', { L"this", L"typedef", L"trait" } },
-	{ 'r', { L"return" } },
-	{ '#', { L"#include", L"#define" } }
-};
+
 
 extern std::string ToLower(const std::string& str);
 
-struct Styling
-{
-	std::string language;
 
-	std::map<WCHAR, std::vector<std::wstring>> keywords;
-};
 
 void TextBoxCode::Render(Skin::Base* skin)
 {
@@ -1286,7 +1275,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 	float hoffset = this->GetSidebarWidth();
 
 	this->SetPadding(Gwen::Padding(hoffset, 0, 0, 0));
-	if ((m_iCursorPos != m_iCursorEndPos || m_iCursorEndLine != m_iCursorLine))
+	if (m_iCursorPos != m_iCursorEndPos || m_iCursorEndLine != m_iCursorLine)
 	{
 		int iCursorStartLine = m_iCursorLine;
 		int iCursorEndLine = m_iCursorEndLine;
@@ -1404,13 +1393,6 @@ void TextBoxCode::Render(Skin::Base* skin)
 		}
 	}
 
-	// Draw selection.. if selected..
-	if (m_iCursorPos != m_iCursorEndPos)
-	{
-		//skin->GetRender()->SetDrawColor(Gwen::Color(50, 170, 255, 200));
-		//skin->GetRender()->DrawFilledRect(m_rectSelectionBounds);
-	}
-
 	// Draw caret
 	if (HasFocus())
 	{
@@ -1485,13 +1467,16 @@ void TextBoxCode::Render(Skin::Base* skin)
 	str.push_back(0);
 	float width = skin->GetRender()->MeasureText(GetFont(), "W").x;
 	int max_chars = this->Width() / width + 2;
-	int bottom_line = Min<int>(m_scroll + numbers2draw, this->m_lines.size());
+	int bottom_line = Min<int>(m_scroll + numbers2draw, this->m_lines.size()) + (iscroll - m_scroll);
+	auto lpos = this->LocalPosToCanvas(Gwen::Point(0, 0));
 
-	for (int i = iscroll; i < bottom_line + (iscroll - m_scroll); i++)
+	for (int i = iscroll; i < bottom_line; i++)
 	{
 		//highlight the text, then we can render it below
-		if (line_iterator->dirty)
+		if (line_iterator->dirty && this->style)
 		{
+			auto& keywords = this->style->keywords;
+
 			if (i == 0)
 				line_iterator->is_comment = false;
 			else
@@ -1548,7 +1533,6 @@ void TextBoxCode::Render(Skin::Base* skin)
 					was_space = true;
 				else
 					was_space = false;
-				//std::wregex num(L"\\b(for|do|if|else|while|case|break|return|fun|let|struct|extern|typedef|continue|union|match|default|this)");
 			}
 
 			//look for comments and strings
@@ -1610,7 +1594,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 				//dont change anything if we have a fold with us as the parent
 				if (line_iterator->fold && line_iterator->fold->start == &line_iterator._Ptr->_Myval)
 				{
-					//ok, lets add indicators/fold buttons then get started
+					
 				}
 				else
 				{
@@ -1650,14 +1634,14 @@ void TextBoxCode::Render(Skin::Base* skin)
 				{
 					//remove the fold!
 					//instead of doing this lets do a lazy deletion, simply mark it as needing to be removed then the last holder can delete it
-					if (line_iterator->fold->end)
+					if (line_iterator->fold->end && line_iterator->fold->end != line_iterator->fold->start)
 					{
 						auto it = line_iterator;
 						it++;
 						do
 						{
 							if (it->fold == line_iterator->fold)
-								it->fold = it->fold->parent;
+								it->fold = line_iterator->fold->parent;
 
 							it++;
 						} while (&it._Ptr->_Myval != line_iterator->fold->end);
@@ -1675,8 +1659,9 @@ void TextBoxCode::Render(Skin::Base* skin)
 						line_iterator->fold->parent->folds = tfolds;
 					}
 					
+					auto parent = line_iterator->fold->parent;
 					delete line_iterator->fold;
-					line_iterator->fold = 0;
+					line_iterator->fold = parent;
 				}
 				else
 				{
@@ -1755,32 +1740,71 @@ void TextBoxCode::Render(Skin::Base* skin)
 			skin->GetRender()->DrawLinedRect(Gwen::Rect(hoffset - fsize, 2 + pos*fsize, this->GetSize().x - hoffset, fsize));
 		}
 		
+		//clip text outside of the text area
+		auto old_clip = skin->GetRender()->ClipRegion(); 
+		skin->GetRender()->SetClipRegion(Gwen::Rect(lpos.x + hoffset, lpos.y, this->Width() - hoffset, this->Height()));
+		skin->GetRender()->StartClip();
 		//draw each character
-		int offset = 0;
-		for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
+		if (this->style)
 		{
-			str[0] = line_iterator->m_Unicode[i];
-			if (str[0] == '\t')
+			int offset = 0;
+			for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
 			{
-				//then round to the next greater 4th space
-				offset = offset + (4 - offset % 4);
-				continue;
-			}
-			else if (str[0] == ' ')
-			{
-				offset++;
-				continue;
-			}
+				str[0] = line_iterator->m_Unicode[i];
+				if (str[0] == '\t')
+				{
+					//then round to the next greater 4th space
+					offset = offset + (4 - offset % 4);
+					continue;
+				}
+				else if (str[0] == ' ')
+				{
+					offset++;
+					continue;
+				}
 
-			float xoff = 4 + hoffset - this->m_hscroll + offset++*width;
-			if (xoff < 0)
-				continue;
-			if (xoff > this->Width())
-				break;
-			skin->GetRender()->SetDrawColor(styles[line_iterator->styles[i]]);
-			//make a fast one letter version of this
-			skin->GetRender()->RenderText(GetFont(), Gwen::PointF(xoff, 2 + pos*fsize), str);
+				float xoff = 4 + hoffset - this->m_hscroll + offset++*width;
+				if (xoff < 0)
+					continue;
+				if (xoff > this->Width())
+					break;
+				skin->GetRender()->SetDrawColor(styles[line_iterator->styles[i]]);
+				//make a fast one letter version of this
+				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(xoff, 2 + pos*fsize), str);
+			}
 		}
+		else
+		{
+			skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));
+
+			int offset = 0;
+			for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
+			{
+				str[0] = line_iterator->m_Unicode[i];
+				if (str[0] == '\t')
+				{
+					//then round to the next greater 4th space
+					offset = offset + (4 - offset % 4);
+					continue;
+				}
+				else if (str[0] == ' ')
+				{
+					offset++;
+					continue;
+				}
+
+				float xoff = 4 + hoffset - this->m_hscroll + offset++*width;
+				if (xoff < 0)
+					continue;
+				if (xoff > this->Width())
+					break;
+				//make a fast one letter version of this
+				skin->GetRender()->RenderText(GetFont(), Gwen::PointF(xoff, 2 + pos*fsize), str);
+			}
+		}
+		skin->GetRender()->EndClip();
+
+		skin->GetRender()->SetClipRegion(old_clip);
 		//skin->GetRender()->RenderText(GetFont(), Gwen::PointF(4 + hoffset - this->m_hscroll, 2 + pos*fsize), line_iterator->m_Unicode);
 
 		//draw line number
@@ -1793,26 +1817,15 @@ void TextBoxCode::Render(Skin::Base* skin)
 		pos++;
 	}
 
-	//skin->GetRender()->SetDrawColor(Gwen::Color(255, 255, 255, 255));
-	//skin->GetRender()->DrawFilledRect(Gwen::Rect(1, 1, hoffset - 2 - bp_bar_size, this->GetSize().y - 2));
-
 	//draw line for breakpoints
 	skin->GetRender()->SetDrawColor(Gwen::Color(150, 150, 150, 255));
 	skin->GetRender()->DrawFilledRect(Gwen::Rect(/*this->GetPos().x*/ hoffset - bp_bar_size - 1, /*this->GetPos().y*/ 0, bp_bar_size, this->GetSize().y));
 
 	//draw breakpoints and the like
-	skin->GetRender()->SetDrawColor(Gwen::Color(255, 0, 0, 255));
-	
-	//need to draw these on the correct line
-	//draw breakpoints
 	if (this->breakpoints)
 	{
 		for (int i = 0; i < this->breakpoints->size(); i++)
 		{
-			//check if its in range
-			//if (this->breakpoints->at(i).line < m_scroll || this->breakpoints->at(i).line > Min<int>(m_scroll + numbers2draw, this->m_lines.size()))
-			//	continue;
-
 			if (ToLower(this->breakpoints->at(i).file) != ToLower(this->filename))
 				continue;
 
@@ -1830,8 +1843,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 	skin->GetRender()->SetDrawColor(Gwen::Color(255, 255, 255, 255));
 	for (int i = 0; i < this->line_indicators.size(); i++)
 	{
-		//int line = line_indicators[i].line;
-		int line = line_map[this->line_indicators[i].line] - 1;
+		int line = line_map[this->line_indicators[i].line];
 		if (line < 0)
 			continue;
 
@@ -1840,14 +1852,6 @@ void TextBoxCode::Render(Skin::Base* skin)
 		//else
 		skin->GetRender()->RenderText(&this->icon_font, Gwen::PointF(hoffset - bp_bar_size - 1, (line)*fsize - 2), L"\u27A5");//\u21e8");
 	}
-
-
-	//draw line numbers
-	//skin->GetRender()->SetDrawColor(Gwen::Color(0, 0, 0, 255));
-
-	//pos = 0;
-	//for (int i = m_scroll; i < Min<int>(m_scroll + numbers2draw, this->m_lines.size()); i++)
-	//	skin->GetRender()->RenderText(GetFont(), Gwen::PointF(4, 2 + pos++*fsize), std::to_string(i + 1));// m_String.GetUnicode());
 }
 
 void TextBoxCode::MakeCaratVisible()

@@ -55,6 +55,8 @@ class GUnit : public Gwen::Controls::Base
 		IDE* m_pUnitTest;
 };
 
+
+
 class IDE : public Gwen::Controls::DockBase
 {
 	public:
@@ -100,9 +102,12 @@ class IDE : public Gwen::Controls::DockBase
 		//debugging stuff
 		std::thread debugging;
 		HANDLE rpipe = 0, wpipe = 0;
+		int gdb_pid;
+		bool debugging_running = false;
 
 		std::mutex line_mutex;
 		std::vector<std::string> lines_to_add;
+
 
 		//build thread and stuff
 		std::thread build;
@@ -127,6 +132,9 @@ class IDE : public Gwen::Controls::DockBase
 		Gwen::Font					m_CodeFont;
 
 		Gwen::Controls::MenuStrip*  m_menu;
+
+		std::map<std::string, Styling*> languages;
+		std::map<std::string, Styling*> extensions;
 
 		
 		std::vector<Gwen::Controls::TextBoxCode::breakpoint> breakpoints;

@@ -13,6 +13,7 @@
 #include "Gwen/Controls/Properties.h"
 #include "Gwen/Controls/Layout/Table.h"
 #include "Gwen/Controls/PropertyTree.h"
+#include "Gwen/Controls/WindowCanvas.h"
 
 using namespace Gwen;
 
@@ -255,8 +256,12 @@ void IDE::RefreshFiles()
 		find_files(Gwen::Utility::StringToUnicode(path).c_str(), (Gwen::Controls::TreeNode*)ii, this);
 	}
 }
+#include "Gwen/Controls/ComboBox.h"
+#include <signal.h>
+#include <sys/types.h>
+#include <stdio.h>
 
-
+extern Gwen::Controls::WindowCanvas* OpenWindow(const char* name, int w, int h);
 void IDE::MenuItemSelect(Controls::Base* pControl)
 {
 	Gwen::Controls::MenuItem* pMenuItem = (Gwen::Controls::MenuItem*) pControl;
@@ -320,13 +325,61 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 	{
 		Gwen::Dialogs::FileOpen(true, String("Open Project"), String(""), String(".jp|*.jp|All|*.*"), this, &ThisClass::OnProjectOpen);
 	}
-	else if (pMenuItem->GetText() == L"Start Debugging")
+	else if (pMenuItem->GetText() == L"Start Debugging" || pMenuItem->GetText() == L"Attach Debugger")
 	{
-		if (this->active_project == 0)
-			return;
-
 		if (this->debugging.joinable())
 			return;
+
+
+		std::string attach;
+		if (this->active_project == 0 || pMenuItem->GetText() == L"Attach Debugger")
+		{
+			//bring up dialog to select 
+			auto window = OpenWindow("Enter A Process ID", 200, 120);
+			/*Gwen::Controls::ComboBox* box = new Gwen::Controls::ComboBox(window);
+			box->SetPos(20, 30);
+			box->SetWidth(100);
+			box->SetText("Hey");
+			box->AddItem(L"Test");
+			box->AddItem(L"Test2");*/
+			Gwen::Controls::TextBox* box = new Gwen::Controls::TextBox(window);
+			box->SetPos(20, 30);
+			box->SetWidth(100);
+	
+			std::string pid;
+			box->onTextChanged.GlobalAdd(0, [](Gwen::Event::Info info){
+				std::string* pid = (std::string*)info.Data;
+				pid->assign(info.Control->GetValue());
+			}, &pid);
+
+			Gwen::Controls::Button* b = new Gwen::Controls::Button(window);
+			b->SetPos(130, 30);
+			b->SetWidth(50);
+			b->SetText("Ok");
+
+			bool done = false;
+			b->onDown.GlobalAdd(0, [](Gwen::Event::Info info)
+			{
+				bool* b = (bool*)info.Data;
+				*b = true;
+			}, (void*)&done);
+
+			//what to do with the window now??
+			//	it doesnt like being updated in this loop for some reason
+				
+
+			while (done == false)
+			{
+				Gwen::Platform::Sleep(10);
+				window->DoThink();
+			}
+			//window->InputQuit();
+
+			attach = pid;
+
+			if (pid.length() == 0)
+				return;
+		}
 
 		this->m_TextOutput->Clear();
 
@@ -351,9 +404,9 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 
 
 		std::wstring cmdb = L"gdb.exe ";
-		cmdb += Gwen::Utility::StringToUnicode(this->active_project->GetExecutablePath());
+		if (attach.length() == 0)
+			cmdb += Gwen::Utility::StringToUnicode(this->active_project->GetExecutablePath());
 		cmdb += L" --interpreter=mi";
-		//WCHAR cmd[] = L"gdb.exe ForLoop.exe --interpreter=mi";
 
 		const WCHAR* cmd = cmdb.c_str();
 		STARTUPINFO si = { sizeof(STARTUPINFO) };
@@ -361,7 +414,7 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 		si.hStdOutput = hPipeWrite;
 		si.hStdError = hPipeWrite;
 		si.hStdInput = hPipeInRead;
-		si.wShowWindow = SW_HIDE;       // Prevents cmd window from flashing. Requires STARTF_USESHOWWINDOW in dwFlags.
+		si.wShowWindow = SW_HIDE;// Prevents cmd window from flashing. Requires STARTF_USESHOWWINDOW in dwFlags.
 
 		PROCESS_INFORMATION pi = { 0 };
 
@@ -372,14 +425,22 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 			CloseHandle(hPipeRead);
 			CloseHandle(hPipeInRead);
 			CloseHandle(hPipeInWrite);
-			return;// strResult;
+			return;
 		}
 
 		Sleep(100);
 
-
+		this->gdb_pid = pi.dwProcessId;
 		rpipe = hPipeRead;
 		wpipe = hPipeInWrite;
+
+		//attach first to load symbols
+		if (attach.length())
+		{
+			std::string command = "attach " + attach + "\n";//need to also continue so we get to useful point
+
+			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
+		}
 
 		//set breakpoints
 		for (auto& bp : this->breakpoints)
@@ -388,8 +449,17 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 		}
 
-		std::string command = "set new-console on\nrun\n";
-		WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
+		//continue execution
+		if (attach.length())
+		{
+			std::string command = "c\n";//need to also continue so we get to useful point
+			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
+		}
+		else
+		{
+			std::string command = "set new-console on\nrun\n";
+			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
+		}
 
 		debugging = std::thread([this, pi]()
 		{
@@ -462,6 +532,11 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 	{
 		if (this->debugging.joinable() == false)
 			return;
+
+		AttachConsole(this->gdb_pid);
+		SetConsoleCtrlHandler(NULL, true);
+		GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0);
+		FreeConsole();
 	}
 	else if (pMenuItem->GetText() == L"Step Over")
 	{
@@ -554,15 +629,15 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 		buildrpipe = hPipeRead;
 		//wpipe = hPipeInWrite;
 
-		std::string command = "set new-console on\nrun\n";
-		WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
+		//std::string command = "set new-console on\nrun\n";
+		//WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 
 		//set breakpoints
-		for (auto& bp : this->breakpoints)
+		/*for (auto& bp : this->breakpoints)
 		{
 			std::string command = "b " + std::to_string(bp.line) + "\n";
 			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
-		}
+		}*/
 
 		build = std::thread([this, pi]()
 		{
@@ -779,9 +854,11 @@ void IDE::ProcessMessages()
 	{
 		for (auto ii : lines_to_add)
 		{
-			if (ii[0] == '~')
+			this->PrintText(Gwen::Utility::StringToUnicode(ii));
+
+			/*if (ii[0] == '~')
 				this->PrintText(Gwen::Utility::StringToUnicode(ii));
-			else if (ii[0] == '*')
+			else*/ if (ii[0] == '*')
 			{
 				if (ii[1] == 'r')
 				{
@@ -789,6 +866,7 @@ void IDE::ProcessMessages()
 					//also lets look at breakpoint list when rendering and just share a pointer of it to our tabs
 					//	that fixes it
 					//ok, lets make the line indicator different than breakpoints this is screwing me up a lot
+					this->debugging_running = true;
 					for (auto ii : this->open_files)
 					{
 						ii.first->line_indicators.clear();
@@ -808,12 +886,14 @@ void IDE::ProcessMessages()
 					//continue;
 				}
 				if (strncmp(ii.c_str(), "*stopped,reason=\"exited-normally", 20) == 0
-					|| strncmp(ii.c_str(), "*stopped\r", 10) == 0)
+					)//|| strncmp(ii.c_str(), "*stopped\r", 10) == 0)
 				{
 					std::string command = "-gdb-exit\n";
 					WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 					continue;
 				}
+
+				this->debugging_running = false;
 
 				//todo, need to check stopped reason
 				//we stopped, enable continue and disable pause
@@ -829,6 +909,7 @@ void IDE::ProcessMessages()
 					WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 					continue;
 				}
+
 				std::string sub = ii.substr(pos + 10, ii.find("\"", pos + 10) - pos - 10);
 				StringReplace(sub, "\\\\", "\\");
 
@@ -1070,6 +1151,7 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 	{
 		Gwen::Controls::MenuItem* pRoot = menu->AddItem(L"Debug");
 		pRoot->GetMenu()->AddItem(L"Start Debugging", "", "")->SetAction(this, &ThisClass::MenuItemSelect);
+		pRoot->GetMenu()->AddItem(L"Attach Debugger", "", "")->SetAction(this, &ThisClass::MenuItemSelect);
 		pRoot->GetMenu()->AddItem(L"Continue", "", "F5")->SetAction(this, &ThisClass::MenuItemSelect);
 		pRoot->GetMenu()->AddItem(L"Pause", "", "")->SetAction(this, &ThisClass::MenuItemSelect);
 		pRoot->GetMenu()->AddItem(L"Step", "", "F11")->SetAction(this, &ThisClass::MenuItemSelect);
@@ -1105,7 +1187,7 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 		ctrl->Dock(Pos::Fill);
 		ctrl->ExpandAll();
 
-		find_files(L"../", pNode, this);
+		//find_files(L"../", pNode, this);
 
 		file_list = ctrl;
 
@@ -1169,6 +1251,82 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 	//m_Tabs->Dock(Pos::Fill | Pos::Top);
 	//m_Tabs->SetSize(200, 200);
 
+	//Setup stylings for languages
+	std::map<WCHAR, std::vector<std::wstring>> cppkeywords = {
+		{ 'f', { L"for", L"free" } },
+		{ 'i', { L"if" } },
+		{ 'a', { L"auto" } },
+		{ 'd', { L"do", L"default", L"delete" } },
+		{ 's', { L"struct", L"sizeof", L"static" } },
+		{ 'c', { L"continue", L"const", L"case", L"catch", L"class" } },
+		{ 'b', { L"break" } },
+		{ 'w', { L"while" } },
+		{ 'p', { L"private", L"public", L"protected" } },
+		{ 'u', { L"union", L"using" } },
+		{ 'n', { L"namespace", L"new" } },
+		{ 'e', { L"extern", L"else" } },
+		{ 't', { L"this", L"typedef", L"try" } },
+		{ 'o', { L"operator" } },
+		{ 'r', { L"return" } },
+		{ '#', { L"#define", L"#include" } },
+		{ 'v', { L"virtual" } }
+	};
+	Styling* style = new Styling;
+	style->language = "C++";
+	style->keywords = cppkeywords;
+	this->languages[style->language] = style;
+	this->extensions["cpp"] = style;
+	this->extensions["h"] = style;
+
+	std::map<WCHAR, std::vector<std::wstring>> jetkeywords = {
+		{ 'f', { L"for", L"fun", L"free" } },
+		{ 'i', { L"if" } },
+		{ 'd', { L"do", L"default" } },
+		{ 'l', { L"let" } },
+		{ 'm', { L"match" } },
+		{ 's', { L"struct", L"sizeof" } },
+		{ 'c', { L"continue" } },
+		{ 'b', { L"break" } },
+		{ 'w', { L"while" } },
+		{ 'u', { L"union" } },
+		{ 'n', { L"namespace", L"new" } },
+		{ 'e', { L"extern", L"else" } },
+		{ 't', { L"this", L"typedef", L"trait" } },
+		{ 'r', { L"return" } },
+		{ 'v', { L"virtual" } },
+	};
+	Styling* jet = new Styling;
+	jet->language = "Jet";
+	jet->keywords = jetkeywords;
+	this->languages[jet->language] = jet;
+	this->extensions["jet"] = jet;
+
+	std::map<WCHAR, std::vector<std::wstring>> cskeywords = {
+		{ 'f', { L"for", L"fun", L"free", L"finally" } },
+		{ 'i', { L"if", L"is", L"in", L"interface" } },
+		{ 'd', { L"do", L"default", L"delegate" } },
+		{ 'l', { L"let" } },
+		{ 'm', { L"match" } },
+		{ 's', { L"struct", L"sizeof", L"switch", L"static" } },
+		{ 'c', { L"continue", L"class" } },
+		{ 'b', { L"break" } },
+		{ 'w', { L"while" } },
+		{ 'p', { L"private", L"public" } },
+		{ 'o', { L"out", L"override" } },
+		{ 'u', { L"union", L"using" } },
+		{ 'n', { L"namespace", L"new" } },
+		{ 'e', { L"extern", L"else" } },
+		{ 't', { L"this", L"typedef", L"throw", L"typeof", L"try" } },
+		{ 'r', { L"return" } },
+		{ 'v', { L"virtual" } },
+		{ 'a', { L"as" } }
+	};
+	Styling* cs = new Styling;
+	cs->language = "C#";
+	cs->keywords = cskeywords;
+	this->languages[cs->language] = cs;
+	this->extensions["cs"] = cs;
+
 	//auto top = this->GetTop()->GetTabControl()->AddPage(L"Welcome", 0);
 	//use this now
 	//this->GetTop()->GetTabControl()->AddPage(L"Testing2", 0);
@@ -1180,7 +1338,7 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 
 	auto page = m_Tabs->AddPage(L"Welcome", 0);
 
-	this->OpenTab(String("test.txt"));
+	//this->OpenTab(String("test.txt"));
 
 	m_Tabs->SetAllowReorder(true);
 }
@@ -1242,6 +1400,15 @@ Gwen::Controls::TextBoxCode* IDE::OpenTab(const Gwen::String& filename, bool dup
 		}
 	}
 
+	std::string extension;
+	int pos = filename.find_last_of('.');
+	if (pos >= 0)
+	{
+		pos++;
+		extension = filename.substr(pos, filename.length() - pos);
+	}
+
+
 	//read in the whole file
 	std::ifstream t(filename, std::ios::binary);
 	if (t.is_open() == false)
@@ -1260,6 +1427,13 @@ Gwen::Controls::TextBoxCode* IDE::OpenTab(const Gwen::String& filename, bool dup
 	page->SetText(buffer, length);
 
 	delete[] buffer;
+
+	// Setup highlighter
+	auto iter = extensions.find(extension);
+	if (iter != extensions.end())
+	{
+		page->SetStyling(iter->second);
+	}
 
 	int p = filename.find_last_of('\\') == -1 ? filename.find_last_of('/') : filename.find_last_of('\\');
 	p += 1;
@@ -1325,14 +1499,34 @@ void IDE::OnBreakpointAdd(Gwen::Event::Info info)
 	{
 		if (this->breakpoints[i].line == info.Integer && ToLower(breakpoints[i].file) == lowered/*info.String.m_String*/)
 		{
+			if (debugging_running)
+			{
+				AttachConsole(this->gdb_pid);
+				SetConsoleCtrlHandler(NULL, true);
+				GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0);
+				FreeConsole();
+			}
+
 			std::string command = "clear " + std::to_string(info.Integer) + "\n-break-list\n";
+			if (debugging_running)
+				command += "c\n";
 			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 			return;
 		}
 	}
 
+	if (debugging_running)
+	{
+		AttachConsole(this->gdb_pid);
+		SetConsoleCtrlHandler(NULL, true);
+		GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0);
+		FreeConsole();
+	}
+
 	//run the command to add it and refresh
 	std::string command = "b \"" + info.String.m_String +"\":" + std::to_string(info.Integer) + "\n-break-list\n";
+	if (debugging_running)
+		command += "c\n";
 	WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
 }
 
@@ -1359,6 +1553,10 @@ Gwen::Controls::TextBoxCode* IDE::GetCurrentEditor()
 {
 	//todo: improve me
 	auto button = this->m_Tabs->GetCurrentButton();
+	if (auto editor = dynamic_cast<Gwen::Controls::TextBoxCode*>(Gwen::KeyboardFocus))
+	{
+		return editor;
+	}
 	return dynamic_cast<Gwen::Controls::TextBoxCode*>(button->GetPage());
 }
 

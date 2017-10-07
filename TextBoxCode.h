@@ -9,6 +9,14 @@
 #include "Gwen/Controls/ScrollControl.h"
 
 //todo implement basically this with a ui interface https://msdn.microsoft.com/en-us/library/jj620914.aspx?f=255&MSPPError=-2147217396
+
+struct Styling
+{
+	std::string language;
+
+	std::map<WCHAR, std::vector<std::wstring>> keywords;
+};
+
 namespace Gwen
 {
 	namespace Controls
@@ -159,6 +167,11 @@ namespace Gwen
 				return this->modified;
 			}
 
+			void SetStyling(Styling* st)
+			{
+				this->style = st;
+			}
+
 		protected:
 
 			bool needs_width_update = true;
@@ -198,6 +211,8 @@ namespace Gwen
 			Gwen::Controls::VerticalScrollBar* m_vbar;
 			Gwen::Controls::Menu* m_context_menu;
 			Gwen::Controls::ListBox* ac_menu;//autocomplete menu
+
+			Styling* style = 0;//for code
 
 			//for undo/redo
 			struct Action
