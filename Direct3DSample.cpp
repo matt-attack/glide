@@ -89,7 +89,7 @@ int main(int argc, char** args)// HINSTANCE hInstance, HINSTANCE hPrevInstance, 
 	skin->SetDefaultFont(L"Segoe UI", 11);// L"Segoe UI");
 
 	IDE* ppUnit = new IDE(window_canvas);
-	ppUnit->SetPos(10, 10);
+	ppUnit->SetPos(0, 0);
 
 	if (argc > 1)
 		ppUnit->OpenTab(args[1]);

@@ -251,19 +251,19 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 
 	this->modified = true;
 
-	auto line = this->m_lines.begin();
+	auto t = this->m_lines.begin();
 	for (int i = 0; i < m_iCursorLine; i++)
-		line++;
-	auto len = line->m_Unicode.length();
-	if (m_iCursorPos > line->m_Unicode.length())
-		m_iCursorPos = line->m_Unicode.length();
+		t++;
+	auto len = t->m_Unicode.length();
+	if (m_iCursorPos > t->m_Unicode.length())
+		m_iCursorPos = t->m_Unicode.length();
 
 	if (!IsTextAllowed(strInsert, m_iCursorPos))
 		return;
 
-	auto t = this->m_lines.begin();
-	for (int i = 0; i < m_iCursorLine; i++)
-		t++;
+	//auto t = this->m_lines.begin();
+	//for (int i = 0; i < m_iCursorLine; i++)
+	//	t++;
 
 	for (int i = 0; i < strInsert.length(); i++)
 	{
@@ -282,7 +282,7 @@ void TextBoxCode::InsertText(const Gwen::UnicodeString & strInsert)
 				n.dirty = true;
 				n.width_dirty = true;
 				n.is_comment = t->is_comment;
-				t = m_lines.insert(t, n);
+				t = m_lines.insert(++t, n);
 				m_iCursorPos = 0;
 			}
 			else
@@ -573,10 +573,12 @@ std::list<TextBoxCode::Line>::iterator TextBoxCode::GetCharacterAtPoint(int x, i
 			else
 				iChar = i + 1;
 	}
-	if (iChar < 0)
-		iChar = 0;
+	if (iChar + 1 < 0)
+		iChar = - 1;
 
-	column = iChar;
+	column = iChar + 1;
+	if (column > t->m_Unicode.length())
+		column = t->m_Unicode.length();
 	return t;
 }
 
@@ -600,7 +602,7 @@ void TextBoxCode::OnMouseDoubleClickLeft(int x, int y)
 	//	t++;
 
 	//search left
-	for (int i = column; i >= 0; i--)
+	for (int i = column-1; i >= 0; i--)
 	{
 		if (isalnum(t->m_Unicode[i]) || t->m_Unicode[i] == '_')
 			m_iCursorPos--;
