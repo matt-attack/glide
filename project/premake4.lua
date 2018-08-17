@@ -119,7 +119,7 @@ if ( os.get() == "windows" ) then
 				  
 	DefineSample( "IDE",
                   { "../Direct3DSample.cpp", "../IDE.cpp", "../TextBoxCode.cpp" },
-                  { "Renderer-DirectX9", "Renderer-OpenGL_DebugFont", "GWEN-Static", "Renderer-Direct2D", "d2d1"} )
+                  { "Renderer-OpenGL_DebugFont", "GWEN-Static", "Renderer-Direct2D", "d2d1"} )
 	includedirs { "$(DXSDK_DIR)/Include" }
 	libdirs { "$(DXSDK_DIR)/lib/x86" }
 

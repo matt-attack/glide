@@ -91,6 +91,8 @@ class IDE : public Gwen::Controls::DockBase
 		void OnFolderOpen(Gwen::Event::Info info);
 		void OnFileSave(Gwen::Event::Info info);
 		void OnBreakpointAdd(Gwen::Event::Info info);
+
+		void OnOutputClicked(Gwen::Event::Info info);
 		void OnCloseTab(Gwen::Controls::Base* pControl);
 
 		void RefreshFiles();

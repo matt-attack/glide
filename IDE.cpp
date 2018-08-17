@@ -15,6 +15,16 @@
 #include "Gwen/Controls/PropertyTree.h"
 #include "Gwen/Controls/WindowCanvas.h"
 
+#include "Gwen/Controls/MenuStrip.h"
+#include "Gwen/Controls/MenuItem.h"
+#include "Gwen/Controls/TabControl.h"
+#include "Gwen/Controls/Dialogs/FileOpen.h"
+#include "Gwen/Controls/Dialogs/FileSave.h"
+#include "Gwen/Controls/Dialogs/FolderOpen.h"
+#include "TextBoxCode.h"
+
+#include <fstream>
+
 using namespace Gwen;
 
 #define ADD_UNIT_TEST( name )\
@@ -30,13 +40,6 @@ using namespace Gwen;
 
 Gwen::Controls::TabButton* pButton = NULL;
 
-#include "Gwen/Controls/MenuStrip.h"
-#include "Gwen/Controls/MenuItem.h"
-#include "Gwen/Controls/TabControl.h"
-#include "Gwen/Controls/Dialogs/FileOpen.h"
-#include "Gwen/Controls/Dialogs/FileSave.h"
-#include "Gwen/Controls/Dialogs/FolderOpen.h"
-#include "TextBoxCode.h"
 
 IDE::~IDE()
 {
@@ -68,21 +71,36 @@ void find_files(LPCWSTR path, Gwen::Controls::TreeNode* parent, IDE* root){
 			node->UserData.Set<std::wstring>("path", spath + L"\\" + FindFileData.cFileName);
 
 			//node->SetToolTip(spath + L"/" + FindFileData.cFileName);
+			//rather than doing this recursively, lets just add a dummy node then use the maximize callback to look into it
+			auto fun = [](Gwen::Event::Info info)
+			{
+				auto control = static_cast<Gwen::Controls::TreeNode*>(info.Control->GetParent());
+
+				if (control->GetChildNodes().size() == 1 && control->GetChildNodes().front()->UserData.Exists("dummy"))
+				{
+					//expand it
+					control->GetChildNodes().front()->DelayedDelete();
+					std::wstring spath = control->UserData.Get<std::wstring>("path");
+					find_files((spath + L"\\" /*+ FindFileData.cFileName*/).c_str(), control, (IDE*)info.Data);
+				}
+			};
+			node->GetToggleButton()->onDown.GlobalAdd(0, fun, root);
+			node->GetButton()->onDown.GlobalAdd(0, fun, root);
 
 			node->onDoubleClick.Add(root, &IDE::OnFileTreePress);
 			if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 			{
-				//loop
-				find_files((spath + L"\\" + FindFileData.cFileName).c_str(), node, root);
+				//instead of loop add dummy that will be explored when the next tree is opened
+				//find_files((spath + L"\\" + FindFileData.cFileName).c_str(), node, root);
 				node->SetImage(L"icons/folder.png");
-				//let clicking open the file
+				auto dummy = node->AddNode("dummy");
+				dummy->UserData.Set<std::string>("dummy", "ok");
 			}
-
+			// todo fix lag on saving before tab name updates
 		} while (FindNextFile(hFind, &FindFileData));
 		FindClose(hFind);
 	}
 }
-
 
 void IDE::OnFolderOpen(Gwen::Event::Info info)
 {
@@ -174,6 +192,54 @@ public:
 
 	virtual std::string GetLineNumberRegex()
 	{
+		return "(?:\\[\\w*\\] [\\w\\.]* )\\d*";// "\d+(?=:)";//one per line
+	}
+
+	virtual std::string GetColumnNumberRegex()
+	{
+		return "(?:\\d)\\d+[^:]";
+	}
+
+	virtual std::string GetFileNameRegex()
+	{
+		return "[\\w/]+.jet";
+	}
+};
+
+
+class CMakeProject : public IProjectFormat
+{
+	std::string filename;
+public:
+
+	virtual void Open(const char* filename)
+	{
+		this->filename = filename;
+	}
+
+	virtual std::string GetBuildCommand()
+	{
+		return "cmake --build " + this->GetProjectFolder();
+	}
+
+	virtual std::string GetExecutablePath()
+	{
+		std::string project_name = this->GetProjectFolder();
+		int off = project_name.find_last_of('\\');
+		project_name = project_name.substr(off + 1);
+		return this->GetProjectFolder() + "/build/" + project_name + ".exe";
+	}
+
+	virtual std::string GetProjectFolder()
+	{
+		std::string folder = filename;
+		int off = folder.find_last_of('\\');
+		folder = folder.substr(0, off);
+		return folder;
+	}
+
+	virtual std::string GetLineNumberRegex()
+	{
 		return "\d+(?=:)";//one per line
 	}
 
@@ -223,6 +289,43 @@ void IDE::OnProjectOpen(Gwen::Event::Info info)
 		pNode->SetText(pNode->GetText().GetUnicode() + L" (Active)");
 		pNode->UserData.Set<std::string>("path", project->GetProjectFolder());
 		
+
+		//	highlight active project in file window and allow changing
+		find_files(Gwen::Utility::StringToUnicode(project->GetProjectFolder()).c_str(), pNode, this);
+
+		//keep track of all open projects and set the new one as active
+		this->projects.push_back(project);
+
+		this->active_project = project;
+	}
+	else if (extension == ".txt")
+	{
+		//its probably a cmake file
+		auto project = new CMakeProject;
+		project->Open(name.c_str());
+
+		std::string short_name = project->GetProjectFolder();
+		int p = short_name.find_last_of('\\') + 1;
+		if (p > 0)
+			short_name = short_name.substr(p, short_name.length() - p);
+
+		// Mark other nodes as not active
+		auto children = file_list->GetChildNodes();
+		for (auto ii : children)
+		{
+			auto path = ii->UserData.Get<std::string>("path");
+			auto tn = (Gwen::Controls::TreeNode*)ii;
+			if (tn->GetText().m_String.find(" (Active)") != 0)
+			{
+				tn->SetText(tn->GetText().m_String.substr(0, tn->GetText().m_String.find(" (Active)")));
+			}
+		}
+
+		Gwen::Controls::TreeNode* pNode = file_list->AddNode(short_name);// project->GetProjectFolder());
+		pNode->SetImage(L"icons/folder.png");
+		pNode->SetText(pNode->GetText().GetUnicode() + L" (Active)");
+		pNode->UserData.Set<std::string>("path", project->GetProjectFolder());
+
 
 		//	highlight active project in file window and allow changing
 		find_files(Gwen::Utility::StringToUnicode(project->GetProjectFolder()).c_str(), pNode, this);
@@ -323,7 +426,7 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 	}
 	else if (pMenuItem->GetText() == L"Open Project")
 	{
-		Gwen::Dialogs::FileOpen(true, String("Open Project"), String(""), String(".jp|*.jp|All|*.*"), this, &ThisClass::OnProjectOpen);
+		Gwen::Dialogs::FileOpen(true, String("Open Project"), String(""), String(".jp|*.jp|CMakeLists|*.txt|All|*.*"), this, &ThisClass::OnProjectOpen);
 	}
 	else if (pMenuItem->GetText() == L"Start Debugging" || pMenuItem->GetText() == L"Attach Debugger")
 	{
@@ -616,6 +719,11 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 		BOOL fSuccess = CreateProcessW(NULL, (LPWSTR)cmd, NULL, NULL, TRUE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi);
 		if (!fSuccess)
 		{
+			auto error = GetLastError();
+			if (error == 2)
+			{
+				//todo give file not found message
+			}
 			CloseHandle(hPipeWrite);
 			CloseHandle(hPipeRead);
 			CloseHandle(hPipeInRead);
@@ -627,17 +735,6 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 
 
 		buildrpipe = hPipeRead;
-		//wpipe = hPipeInWrite;
-
-		//std::string command = "set new-console on\nrun\n";
-		//WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
-
-		//set breakpoints
-		/*for (auto& bp : this->breakpoints)
-		{
-			std::string command = "b " + std::to_string(bp.line) + "\n";
-			WriteFile(wpipe, command.c_str(), command.length(), 0, 0);
-		}*/
 
 		build = std::thread([this, pi]()
 		{
@@ -677,12 +774,6 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 					std::string line;
 					while (std::getline(x, line))
 					{
-						//~ = CLI output
-						//@ = output from running target
-						//& = gdb internal debug output
-						//* = out of band things like breakpoints being hit
-						//if (line[0] == '~')
-						//	printf("");
 						this->output_to_add.push_back(line);
 					}
 					this->output_mutex.unlock();
@@ -693,7 +784,6 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 			OutputDebugString(L"Build Exited!\n");
 		});
 	}
-	//UnitPrint(Utility::Forma(L"Menu Selected: %ls", pMenuItem->GetText().GetUnicode().c_str()));
 }
 
 #include <algorithm>
@@ -969,20 +1059,6 @@ void IDE::ProcessMessages()
 					}
 
 					printf("");
-					int pos = 0;
-					/*while (true)
-					{
-					pos = ii.find("name=\"", pos);
-					if (pos <= 0)
-					break;
-
-					std::string sub = ii.substr(pos + 6, ii.find("\"", pos + 6) - pos - 6);
-
-					pos = ii.find("value=\"", pos);
-					std::string valuesub = ii.substr(pos + 7, ii.find("\"", pos + 7) - pos - 7);
-					//todo actually parse it here
-					this->m_locals->Add(sub, valuesub);
-					}*/
 				}
 				else if (ii.substr(1, 4) == "exit")
 				{
@@ -1084,7 +1160,6 @@ void IDE::ProcessMessages()
 	output_mutex.unlock();
 }
 
-
 void IDE::OnFileTreePress(Gwen::Controls::Base* pControl)
 {
 	Gwen::Controls::TreeNode* node = static_cast<Gwen::Controls::TreeNode*>(pControl);
@@ -1096,6 +1171,58 @@ void IDE::OnFileTreePress(Gwen::Controls::Base* pControl)
 	this->OpenTab(Gwen::Utility::UnicodeToString(file), false);
 
 	return;
+}
+
+#include <regex>
+void IDE::OnOutputClicked(Gwen::Event::Info info)
+{
+	if (this->active_project == 0)
+		return;
+
+	auto ctr = dynamic_cast<Controls::ListBox*>(info.Control);
+	auto row = ctr->GetSelectedRow();
+	auto contents = row->GetCellContents(0);
+	auto text = contents->GetText().Get();
+
+	// Try going to the line specified
+	auto f_regex = std::regex(this->active_project->GetFileNameRegex());
+	auto l_regex = std::regex(this->active_project->GetLineNumberRegex());
+
+	//search the line for a filename, if we find it then we can search for a line number so we can jump to the relevant error
+	auto words_begin = std::sregex_iterator(text.begin(), text.end(), f_regex);
+	auto words_end = std::sregex_iterator();
+
+	for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
+		std::smatch match = *i;
+		std::string match_str = match.str();
+		if (match_str.size() > 0) {
+			//jump to the file and line, if we can find it
+			std::string file = this->active_project->GetProjectFolder() + "\\" + match_str;
+			auto tab = this->OpenTab(file, false);
+			if (tab)
+			{
+				// Try and find a line number
+				int line_num = 0;
+				auto words_begin = std::sregex_iterator(text.begin(), text.end(), l_regex);
+				auto words_end = std::sregex_iterator();
+				for (std::sregex_iterator i = words_begin; i != words_end; ++i)
+				{
+					std::smatch match = *i;
+					std::string match_str = match.str();
+					std::string num = match_str.substr(match_str.find_last_of(' ')+1);//number should be last part of match, so grab it
+					line_num = std::atoi(num.c_str());
+					//grab the first line number
+					break;
+				}
+
+				// go to the line if we have it
+				int lines = Min<int>((tab->Height() - 2) / tab->GetFont()->size, tab->m_lines.size());// max number of lines on screen
+				line_num = line_num - lines/2;
+				tab->GoToLine(line_num);
+			}
+			break;
+		}
+	}
 }
 
 GWEN_CONTROL_CONSTRUCTOR(IDE)
@@ -1187,6 +1314,9 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 		ctrl->Dock(Pos::Fill);
 		ctrl->ExpandAll();
 
+		//lets make find files not actually explore the whole tree, just the base level, or maybe one in then on expand
+		//	expand it more
+		//	maybe make custom tree view for this
 		//find_files(L"../", pNode, this);
 
 		file_list = ctrl;
@@ -1200,6 +1330,7 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 	//GetLeft()->GetTabControl()->AddPage("CollapsibleList", pList);
 	//GetLeft()->SetWidth(150);
 	m_TextOutput = new Controls::ListBox(GetBottom());
+	m_TextOutput->onRowSelected.Add(this, &IDE::OnOutputClicked);
 	pButton = GetBottom()->GetTabControl()->AddPage("Output", m_TextOutput);
 	GetBottom()->SetHeight(200);
 	m_StatusBar = new Controls::StatusBar(this->GetParent());
@@ -1268,7 +1399,7 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 		{ 't', { L"this", L"typedef", L"try" } },
 		{ 'o', { L"operator" } },
 		{ 'r', { L"return" } },
-		{ '#', { L"#define", L"#include" } },
+		{ '#', { L"#define", L"#include", L"#ifndef", L"#ifdef", L"#else", L"#endif", L"#if" } },
 		{ 'v', { L"virtual" } }
 	};
 	Styling* style = new Styling;
@@ -1277,6 +1408,7 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 	this->languages[style->language] = style;
 	this->extensions["cpp"] = style;
 	this->extensions["h"] = style;
+	this->extensions["hpp"] = style;
 
 	std::map<WCHAR, std::vector<std::wstring>> jetkeywords = {
 		{ 'f', { L"for", L"fun", L"free" } },
@@ -1383,7 +1515,6 @@ std::string ToLower(const std::string& str)
 	return out;
 }
 
-#include <fstream>
 Gwen::Controls::TextBoxCode* IDE::OpenTab(const Gwen::String& filename, bool duplicate)
 {
 	//make sure this wont open more than one of the same tab
@@ -1396,7 +1527,13 @@ Gwen::Controls::TextBoxCode* IDE::OpenTab(const Gwen::String& filename, bool dup
 		for (int i = 0; i < this->open_files.size(); i++)
 		{
 			if (ToLower(this->open_files[i].first->filename) == tmp)
+			{
+				//bring to top of tab control
+				//this does some strange tab re-ordering, but it achieves the goal
+				this->open_files[i].second->GetTabControl()->SelectTab(this->open_files[i].second);
+				//this->open_files[i].second->BringToFront();
 				return this->open_files[i].first;
+			}
 		}
 	}
 
@@ -1551,7 +1688,6 @@ void IDE::OnCloseTab(Gwen::Controls::Base* pControl)
 
 Gwen::Controls::TextBoxCode* IDE::GetCurrentEditor()
 {
-	//todo: improve me
 	auto button = this->m_Tabs->GetCurrentButton();
 	if (auto editor = dynamic_cast<Gwen::Controls::TextBoxCode*>(Gwen::KeyboardFocus))
 	{

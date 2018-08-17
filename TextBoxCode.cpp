@@ -15,6 +15,11 @@
 
 #include <math.h>
 
+#include <iostream>
+#include <string>
+#include <codecvt>
+#include <locale>
+
 using namespace Gwen;
 using namespace Gwen::Controls;
 
@@ -90,6 +95,19 @@ GWEN_CONTROL_CONSTRUCTOR(TextBoxCode)
 	menu->AddItem("Cut")->SetAction(this, &ThisClass::onMenuItemSelect);
 	menu->AddItem("Copy")->SetAction(this, &ThisClass::onMenuItemSelect);
 	menu->AddItem("Paste")->SetAction(this, &ThisClass::onMenuItemSelect);
+	menu->AddDivider();
+	//implement this
+	//add support for ROS and CMAKE projects
+	//	needs to support building and error highlighting
+
+		//NEXT TO MAKE ERROR HIGHLIGHTING
+	menu->AddItem("Go to Defintion")->SetAction(this, &ThisClass::onMenuItemSelect)->SetDisabled(true);
+	//enable and disable this based on language
+	menu->AddItem("Toggle Header/Code File")->SetAction(this, &ThisClass::onMenuItemSelect);
+	//implement this when the language is cpp
+	//add switching between header and code for cpp have it look for files in several generic locations
+	//	same folder, ../include 
+	//	also add more debugging stuff and work on gwen port to jet more
 	menu->Hide();
 	this->m_context_menu = menu;
 }
@@ -589,17 +607,13 @@ void TextBoxCode::OnMouseDoubleClickLeft(int x, int y)
 	if (pos.x < 0)
 		return;
 
-	//todo: select the whole word
 	int line, column;
 	auto t = this->GetCharacterAtPoint(x, y, line, column);
-
+	if (column > 0)
+		column += 1;
 	m_iCursorPos = column;
 	m_iCursorEndPos = column;
 	m_iCursorLine = m_iCursorEndLine = line;
-
-	//auto t = this->m_lines.begin();
-	//for (int i = 0; i < line; i++)
-	//	t++;
 
 	//search left
 	for (int i = column-1; i >= 0; i--)
@@ -609,7 +623,7 @@ void TextBoxCode::OnMouseDoubleClickLeft(int x, int y)
 		else
 			break;
 	}
-	m_iCursorPos += 1;
+	//m_iCursorPos += 1;
 
 	//search right
 	for (int i = column; i < t->m_Unicode.length(); i++)
@@ -947,9 +961,7 @@ void TextBoxCode::EraseSelection(bool undoable)
 	}
 	else
 	{
-		auto t = this->GetLine(iStartLine);// this->m_lines.begin();
-		//for (int i = 0; i < iStartLine; i++)
-		//	t++;
+		auto t = this->GetLine(iStartLine);
 
 		Gwen::UnicodeString removed;
 		removed += t->m_Unicode.substr(iStart, t->m_Unicode.length() - iStart);
@@ -1027,7 +1039,7 @@ void TextBoxCode::GoToLine(int l)
 void TextBoxCode::OnMouseClickRight(int x, int y, bool /*bDown*/)
 {
 	auto pos = m_Text->CanvasPosToLocal(Gwen::Point(x, y));
-	pos.x += 63;
+	pos.x += 53;
 	this->m_context_menu->Show();
 	this->m_context_menu->SetPos(pos);
 
@@ -1183,6 +1195,9 @@ bool TextBoxCode::OnKeyReturn(bool bDown)
 	ac_menu->Hide();
 	if (bDown)
 	{
+		//ok, now lets scroll all the way left
+		this->m_hscroll = 0;
+
 		Action act;
 		act.line = this->m_iCursorLine;
 		act.pos = this->m_iCursorPos;
@@ -1196,11 +1211,18 @@ bool TextBoxCode::OnKeyReturn(bool bDown)
 	return true;
 }
 
+#if _MSC_VER >= 1900
 
-#include <iostream>
-#include <string>
-#include <codecvt>
+// Apparently Microsoft forgot to define a symbol for codecvt.
+// Works with /MT only
 #include <locale>
+
+#if (!_DLL) && (_MSC_VER >= 1900 /* VS 2015*/) && (_MSC_VER <= 1913 /* VS 2017 */)
+std::locale::id std::codecvt<char16_t, char, _Mbstatet>::id;
+#endif
+
+#endif
+
 void TextBoxCode::SetText(const char* text, unsigned int len)
 {
 	this->m_lines.push_back(Line());
@@ -1267,6 +1289,7 @@ std::wregex comment(L"\\/{2}.*");
 extern std::string ToLower(const std::string& str);
 
 
+#define IsLetter(c) ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
 
 void TextBoxCode::Render(Skin::Base* skin)
 {
@@ -1474,7 +1497,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 	for (int i = iscroll; i < bottom_line; i++)
 	{
-		//highlight the text, then we can render it below
+		//highlight the text if we have a style and it is dirty, then we can render it below
 		if (line_iterator->dirty && this->style)
 		{
 			auto& keywords = this->style->keywords;
@@ -1485,11 +1508,11 @@ void TextBoxCode::Render(Skin::Base* skin)
 				line_iterator->is_comment = prev_iterator->is_comment;
 
 			line_iterator->styles.resize(line_iterator->m_Unicode.length());
+			// Fill in the default
 			for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
 				line_iterator->styles[i] = Styles::None;
 
-			//fix editing stuff
-			//more undo stuff
+			// Highlight numbers
 			bool last_was_letter = false;
 			for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
 			{
@@ -1498,11 +1521,11 @@ void TextBoxCode::Render(Skin::Base* skin)
 					line_iterator->styles[i] = Styles::Number;
 				if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
 					last_was_letter = true;
-				else
+				else if (!(c >= '0' && c <= '9'))
 					last_was_letter = false;
 			}
 			
-			//do a pass looking for keywords
+			// Highlight keywords
 			bool was_space = true;
 			for (int i = 0; i < line_iterator->m_Unicode.length(); i++)
 			{
@@ -1519,7 +1542,10 @@ void TextBoxCode::Render(Skin::Base* skin)
 							if (line_iterator->m_Unicode.length() - i < kw.length())
 								continue;
 
-							if (memcmp(&line_iterator->m_Unicode.c_str()[i], kw.c_str(), kw.length() * 2) == 0)
+							// also check to make sure we dont have another letter after it
+							char next = i + kw.length() >= line_iterator->m_Unicode.length() ? 0 : line_iterator->m_Unicode[i + kw.length()];
+							if (memcmp(&line_iterator->m_Unicode.c_str()[i], kw.c_str(), kw.length() * 2) == 0 &&
+								!IsLetter(next))
 							{
 								for (int p = i; p < i + kw.length(); p++)
 									line_iterator->styles[p] = Styles::Keyword;
@@ -1537,6 +1563,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 					was_space = false;
 			}
 
+			//todo: look for characters as well
 			//look for comments and strings
 			bool in_line_comment = false;
 			bool in_string = false;
@@ -1679,8 +1706,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 				}
 			}
 
-			//finish implementing compaction
-			//check if next line
+			//check if next line needs to be marked dirty
 			auto next = line_iterator; next++;
 			if (next != this->m_lines.end())
 			{
@@ -1821,7 +1847,7 @@ void TextBoxCode::Render(Skin::Base* skin)
 
 	//draw line for breakpoints
 	skin->GetRender()->SetDrawColor(Gwen::Color(150, 150, 150, 255));
-	skin->GetRender()->DrawFilledRect(Gwen::Rect(/*this->GetPos().x*/ hoffset - bp_bar_size - 1, /*this->GetPos().y*/ 0, bp_bar_size, this->GetSize().y));
+	skin->GetRender()->DrawFilledRect(Gwen::Rect(hoffset - bp_bar_size - 1, 0, bp_bar_size, this->GetSize().y));
 
 	//draw breakpoints and the like
 	if (this->breakpoints)
@@ -1937,9 +1963,33 @@ bool TextBoxCode::OnKeyHome(bool bDown)
 
 	//implement me
 	int iCurrentLine = GetCurrentLine();
-	int iChar = 0;// m_Text->GetStartCharFromLine(iCurrentLine);
+	//int iChar = 0;// m_Text->GetStartCharFromLine(iCurrentLine);
 	//m_iCursorLine = 0;
-	m_iCursorPos = iChar;
+	//m_iCursorPos = iChar;
+
+	// Check our position in the line and see where we need to move
+	auto line = this->GetLine(iCurrentLine);
+
+	// Start by finding end of initial whitespace, 
+	// if we are <= that position, just move to start, else move to this position
+	int start_pos = 0;
+	for (int i = 0; i < line->m_Unicode.length(); i++)
+	{
+		char c = line->m_Unicode[i];
+		if (c == ' ' || c == '\t')
+			continue;
+
+		start_pos = i;
+		break;
+	}
+
+	if (m_iCursorPos <= start_pos)
+	{
+		m_iCursorPos = 0;
+		m_hscroll = 0;
+	}
+	else
+		m_iCursorPos = start_pos;
 
 	if (!Gwen::Input::IsShiftDown())
 	{
@@ -1978,27 +2028,14 @@ bool TextBoxCode::OnKeyEnd(bool bDown)
 	if (Gwen::Input::IsControlDown())
 	{
 		m_iCursorLine = this->m_lines.size();
-		m_iCursorPos = 10000000;
+		m_iCursorPos = 100000000;
 		RefreshCursorBounds();
 		return true;
 	}
 
-	//auto t = this->m_lines.begin();
-	//for (int i = 0; i < line; i++)
-	//	t++;
-
-	//also implement me
 	int iCurrentLine = GetCurrentLine();
-	int iChar = 1000000;// m_Text->GetEndCharFromLine(iCurrentLine);
-	//m_iCursorLine = 0;
+	int iChar = 100000000;
 	m_iCursorPos = iChar;
-
-	int iLastLine = m_Text->NumLines() - 1;
-
-	//if (iCurrentLine < iLastLine && iChar > 0)
-	//	m_iCursorPos = iChar - 1; // NAUGHTY
-	//else
-	//	m_iCursorPos = m_Text->Length();
 
 	if (!Gwen::Input::IsShiftDown())
 	{
@@ -2034,6 +2071,16 @@ bool TextBoxCode::OnKeyUp(bool bDown)
 	/*m_iCursorPos = m_Text->GetStartCharFromLine(iLine - 1);
 	m_iCursorPos += Clamp(m_iCursorLine, 0, m_Text->GetLine(iLine - 1)->Length() - 1);
 	m_iCursorPos = Clamp(m_iCursorPos, 0, m_Text->Length());*/
+
+	if (line->fold && line->fold->folded && line->fold->start != &line._Ptr->_Myval)
+	{
+		//step through
+		do
+		{
+			m_iCursorLine--;
+			line--;
+		} while (line != this->m_lines.begin() && line->fold->folded && line->fold->start != &line._Ptr->_Myval);
+	}
 
 	if (!Gwen::Input::IsShiftDown())
 	{
@@ -2080,6 +2127,16 @@ bool TextBoxCode::OnKeyDown(bool bDown)
 	//	line++;
 	if (m_iCursorPos > line->m_Unicode.length())
 		m_iCursorPos = line->m_Unicode.length();
+
+	if (line->fold && line->fold->folded && line->fold->start != &line._Ptr->_Myval)
+	{
+		//step through
+		do
+		{
+			m_iCursorLine++;
+			line++;
+		} while (line != this->m_lines.end() && line->fold->folded && line->fold->start != &line._Ptr->_Myval);
+	}
 
 	if (!Gwen::Input::IsShiftDown())
 	{
