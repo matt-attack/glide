@@ -1,27 +1,11 @@
 
 dofile( os.get() .. ".lua" )
 
-function DefineRenderer( name, filetable, definestable )
-
-	project ( "Renderer-"..name )
-	files( filetable )
-	flags( { "Symbols" } )
-	kind( "StaticLib" )
-    if ( definestable ) then defines( definestable ) end
-	
-	configuration( "Release" )
-		targetname( "GWEN-Renderer-"..name )
-		
-	configuration( "Debug" )
-		targetname( "GWEND-Renderer-"..name )
-
-end
-
-function DefineSample( name, filetable, linktable, linktabled, definestable )
+function DefineProject( name, filetable, linktable, linktabled, definestable )
 
 	if ( linktabled == nil ) then linktabled = linktable end
 	
-	project( "Sample-" .. name )
+	project( name )
 	targetdir ( "../bin" )
 	
 	if ( debugdir) then
@@ -34,11 +18,11 @@ function DefineSample( name, filetable, linktable, linktabled, definestable )
 	kind "WindowedApp"
 		
 	configuration( "Release" )
-		targetname( name .. "Sample" )
+		targetname( name )
 		links( linktable )
 		
 	configuration "Debug"
-		targetname( name .. "Sample_D" )
+		targetname( name .. "_D" )
 		links( linktabled )
 
 end
