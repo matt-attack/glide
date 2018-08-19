@@ -14,7 +14,7 @@
 #include "Gwen/Input/Windows.h"
 
 //#include "Gwen/Renderers/DirectX9.h"
-//#include "Gwen/Renderers/OpenGL_DebugFont.h"
+//include "Gwen/Renderers/OpenGL_DebugFont.h"
 #include "Gwen/Renderers/Direct2D.h"
 
 #include "Gwen/Controls/WindowCanvas.h"
@@ -49,7 +49,7 @@ Gwen::Controls::WindowCanvas* OpenWindow(const char* name, int w, int h)
 	return window_canvas;
 }
 
-#  include <Windows.h>
+#include <Windows.h>
 
 std::string executable_path(const char *argv0)
 {
@@ -62,7 +62,7 @@ std::string executable_path(const char *argv0)
 	return buf;
 }
 
-int main(int argc, char** args)// HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
+int main(int argc, char** args)
 {
 	//Gwen::Renderer::DirectX9* renderer = new Gwen::Renderer::DirectX9(0);
 	Gwen::Renderer::Direct2D* renderer = new Gwen::Renderer::Direct2D();
@@ -85,11 +85,13 @@ int main(int argc, char** args)// HINSTANCE hInstance, HINSTANCE hPrevInstance, 
 	//
 	std::string path = executable_path(0);
 	path = path.substr(0, path.find_last_of('\\'));
-	skin->Init( path + "\\DefaultSkin.png");
+	skin->Init(path + "\\DefaultSkin.png");
 	skin->SetDefaultFont(L"Segoe UI", 11);// L"Segoe UI");
 
 	IDE* ppUnit = new IDE(window_canvas);
 	ppUnit->SetPos(0, 0);
+
+	//OpenWindow("Test", 200, 200);
 
 	if (argc > 1)
 		ppUnit->OpenTab(args[1]);
