@@ -23,7 +23,22 @@
 #include "Gwen/Controls/Dialogs/FolderOpen.h"
 #include "TextBoxCode.h"
 
+#include "projects.h"
+
 #include <fstream>
+#include <cstdio>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <array>
+
+#include "Gwen/Controls/ComboBox.h"
+#include <signal.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <algorithm>
+#include <regex>
 
 using namespace Gwen;
 
@@ -43,7 +58,7 @@ Gwen::Controls::TabButton* pButton = NULL;
 
 IDE::~IDE()
 {
-	if (this->debugging.joinable())
+	if (this->debugging.joinable() && wpipe)
 	{
 		//force quit gdb if its running
 		std::string command = "-gdb-exit\n";
@@ -106,6 +121,7 @@ void IDE::OnFolderOpen(Gwen::Event::Info info)
 {
 	Gwen::Controls::TreeNode* pNode = file_list->AddNode(info.String);
 	pNode->SetImage(L"icons/folder.png");
+	pNode->UserData.Set<std::string>("path", info.String.m_String);
 	//pNode->setp
 	find_files(info.String.GetUnicode().c_str(), pNode, this);
 }
@@ -129,131 +145,6 @@ void IDE::OnFileSave(Gwen::Event::Info info)
 		button->GetTabControl()->InvalidateChildren();
 	}
 }
-
-#include <cstdio>
-#include <iostream>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <array>
-
-class IProjectFormat
-{
-public:
-	virtual ~IProjectFormat() {}
-
-	virtual void Open(const char* filename) = 0;
-
-	virtual std::string GetBuildCommand() = 0;
-
-	virtual std::string GetExecutablePath() { return ""; }
-
-	virtual std::string GetProjectFolder() = 0;
-
-	virtual std::string GetLineNumberRegex() = 0;
-
-	virtual std::string GetColumnNumberRegex() { return ""; }
-
-	virtual std::string GetFileNameRegex() = 0;
-
-	virtual std::vector<std::string> GetDependencies() { return std::vector<std::string>(); }
-};
-
-class JetProject : public IProjectFormat
-{
-	std::string filename;
-public:
-
-	virtual void Open(const char* filename)
-	{
-		this->filename = filename;
-	}
-
-	virtual std::string GetBuildCommand()
-	{
-		return "jet " + this->GetProjectFolder() + " --linker=ld";
-	}
-
-	virtual std::string GetExecutablePath()
-	{
-		std::string project_name = this->GetProjectFolder();
-		int off = project_name.find_last_of('\\');
-		project_name = project_name.substr(off + 1);
-		return this->GetProjectFolder() + "/build/" + project_name + ".exe";
-	}
-
-	virtual std::string GetProjectFolder()
-	{
-		std::string folder = filename;
-		int off = folder.find_last_of('\\');
-		folder = folder.substr(0, off);
-		return folder;
-	}
-
-	virtual std::string GetLineNumberRegex()
-	{
-		return "(?:\\[\\w*\\] [\\w\\.]* )\\d*";// "\d+(?=:)";//one per line
-	}
-
-	virtual std::string GetColumnNumberRegex()
-	{
-		return "(?:\\d)\\d+[^:]";
-	}
-
-	virtual std::string GetFileNameRegex()
-	{
-		return "[\\w/]+.jet";
-	}
-};
-
-
-class CMakeProject : public IProjectFormat
-{
-	std::string filename;
-public:
-
-	virtual void Open(const char* filename)
-	{
-		this->filename = filename;
-	}
-
-	virtual std::string GetBuildCommand()
-	{
-		return "cmake --build " + this->GetProjectFolder();
-	}
-
-	virtual std::string GetExecutablePath()
-	{
-		std::string project_name = this->GetProjectFolder();
-		int off = project_name.find_last_of('\\');
-		project_name = project_name.substr(off + 1);
-		return this->GetProjectFolder() + "/build/" + project_name + ".exe";
-	}
-
-	virtual std::string GetProjectFolder()
-	{
-		std::string folder = filename;
-		int off = folder.find_last_of('\\');
-		folder = folder.substr(0, off);
-		return folder;
-	}
-
-	virtual std::string GetLineNumberRegex()
-	{
-		return "\d+(?=:)";//one per line
-	}
-
-	virtual std::string GetColumnNumberRegex()
-	{
-		return "(?:\\d)\\d+[^:]";
-	}
-
-	virtual std::string GetFileNameRegex()
-	{
-		return "[\\w/]+.jet";
-	}
-};
-
 
 void IDE::OnProjectOpen(Gwen::Event::Info info)
 {
@@ -359,10 +250,6 @@ void IDE::RefreshFiles()
 		find_files(Gwen::Utility::StringToUnicode(path).c_str(), (Gwen::Controls::TreeNode*)ii, this);
 	}
 }
-#include "Gwen/Controls/ComboBox.h"
-#include <signal.h>
-#include <sys/types.h>
-#include <stdio.h>
 
 extern Gwen::Controls::WindowCanvas* OpenWindow(const char* name, int w, int h);
 void IDE::MenuItemSelect(Controls::Base* pControl)
@@ -786,7 +673,6 @@ void IDE::MenuItemSelect(Controls::Base* pControl)
 	}
 }
 
-#include <algorithm>
 class GdbNode
 {
 public:
@@ -1173,7 +1059,6 @@ void IDE::OnFileTreePress(Gwen::Controls::Base* pControl)
 	return;
 }
 
-#include <regex>
 void IDE::OnOutputClicked(Gwen::Event::Info info)
 {
 	if (this->active_project == 0)
@@ -1298,9 +1183,9 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 	{
 		//solution browser experimenting
 		Gwen::Controls::TreeControl* ctrl = new Gwen::Controls::TreeControl(this);
-		Gwen::Controls::TreeNode* pNode = ctrl->AddNode(L"../");
-		pNode->SetImage(L"test16.png");
-		pNode->UserData.Set<std::string>("path", "../");
+		//Gwen::Controls::TreeNode* pNode = ctrl->AddNode(L"../");
+		//pNode->SetImage(L"test16.png");
+		//pNode->UserData.Set<std::string>("path", "../");
 
 		//todo ok, instead of just format types need to store token types(kinda currently am so no big deal here)
 		//then with that can provide hover data as well as auto suggest
@@ -1335,10 +1220,7 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 	GetBottom()->SetHeight(200);
 	m_StatusBar = new Controls::StatusBar(this->GetParent());
 	m_StatusBar->Dock(Pos::Bottom);
-
-
 	m_StatusBar->SendToBack();
-
 
 
 	//this is where locals go
@@ -1381,87 +1263,6 @@ GWEN_CONTROL_CONSTRUCTOR(IDE)
 	tabs->GetTitleBar()->Hide();//hide the title bar
 	//m_Tabs->Dock(Pos::Fill | Pos::Top);
 	//m_Tabs->SetSize(200, 200);
-
-	//Setup stylings for languages
-	std::map<WCHAR, std::vector<std::wstring>> cppkeywords = {
-		{ 'f', { L"for", L"free" } },
-		{ 'i', { L"if" } },
-		{ 'a', { L"auto" } },
-		{ 'd', { L"do", L"default", L"delete" } },
-		{ 's', { L"struct", L"sizeof", L"static" } },
-		{ 'c', { L"continue", L"const", L"case", L"catch", L"class" } },
-		{ 'b', { L"break" } },
-		{ 'w', { L"while" } },
-		{ 'p', { L"private", L"public", L"protected" } },
-		{ 'u', { L"union", L"using" } },
-		{ 'n', { L"namespace", L"new" } },
-		{ 'e', { L"extern", L"else" } },
-		{ 't', { L"this", L"typedef", L"try" } },
-		{ 'o', { L"operator" } },
-		{ 'r', { L"return" } },
-		{ '#', { L"#define", L"#include", L"#ifndef", L"#ifdef", L"#else", L"#endif", L"#if" } },
-		{ 'v', { L"virtual" } }
-	};
-	Styling* style = new Styling;
-	style->language = "C++";
-	style->keywords = cppkeywords;
-	this->languages[style->language] = style;
-	this->extensions["cpp"] = style;
-	this->extensions["h"] = style;
-	this->extensions["hpp"] = style;
-
-	std::map<WCHAR, std::vector<std::wstring>> jetkeywords = {
-		{ 'f', { L"for", L"fun", L"free" } },
-		{ 'i', { L"if" } },
-		{ 'd', { L"do", L"default" } },
-		{ 'l', { L"let" } },
-		{ 'm', { L"match" } },
-		{ 's', { L"struct", L"sizeof" } },
-		{ 'c', { L"continue" } },
-		{ 'b', { L"break" } },
-		{ 'w', { L"while" } },
-		{ 'u', { L"union" } },
-		{ 'n', { L"namespace", L"new" } },
-		{ 'e', { L"extern", L"else" } },
-		{ 't', { L"this", L"typedef", L"trait" } },
-		{ 'r', { L"return" } },
-		{ 'v', { L"virtual" } },
-	};
-	Styling* jet = new Styling;
-	jet->language = "Jet";
-	jet->keywords = jetkeywords;
-	this->languages[jet->language] = jet;
-	this->extensions["jet"] = jet;
-
-	std::map<WCHAR, std::vector<std::wstring>> cskeywords = {
-		{ 'f', { L"for", L"fun", L"free", L"finally" } },
-		{ 'i', { L"if", L"is", L"in", L"interface" } },
-		{ 'd', { L"do", L"default", L"delegate" } },
-		{ 'l', { L"let" } },
-		{ 'm', { L"match" } },
-		{ 's', { L"struct", L"sizeof", L"switch", L"static" } },
-		{ 'c', { L"continue", L"class" } },
-		{ 'b', { L"break" } },
-		{ 'w', { L"while" } },
-		{ 'p', { L"private", L"public" } },
-		{ 'o', { L"out", L"override" } },
-		{ 'u', { L"union", L"using" } },
-		{ 'n', { L"namespace", L"new" } },
-		{ 'e', { L"extern", L"else" } },
-		{ 't', { L"this", L"typedef", L"throw", L"typeof", L"try" } },
-		{ 'r', { L"return" } },
-		{ 'v', { L"virtual" } },
-		{ 'a', { L"as" } }
-	};
-	Styling* cs = new Styling;
-	cs->language = "C#";
-	cs->keywords = cskeywords;
-	this->languages[cs->language] = cs;
-	this->extensions["cs"] = cs;
-
-	//auto top = this->GetTop()->GetTabControl()->AddPage(L"Welcome", 0);
-	//use this now
-	//this->GetTop()->GetTabControl()->AddPage(L"Testing2", 0);
 
 	//ok, add modified indicator to pages and 
 	//	close button for when they arent docked in tab control
@@ -1566,8 +1367,8 @@ Gwen::Controls::TextBoxCode* IDE::OpenTab(const Gwen::String& filename, bool dup
 	delete[] buffer;
 
 	// Setup highlighter
-	auto iter = extensions.find(extension);
-	if (iter != extensions.end())
+	auto iter = language_support.extensions.find(extension);
+	if (iter != language_support.extensions.end())
 	{
 		page->SetStyling(iter->second);
 	}

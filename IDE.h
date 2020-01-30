@@ -1,5 +1,4 @@
 
-#pragma once
 #ifndef IDE_H
 #define IDE_H
 
@@ -17,6 +16,7 @@
 #include <mutex>
 
 class IDE;
+class IProjectFormat;
 
 namespace Gwen
 {
@@ -29,7 +29,6 @@ namespace Gwen
 	}
 }
 
-class IProjectFormat;
 class GUnit : public Gwen::Controls::Base
 {
 	public:
@@ -135,10 +134,6 @@ class IDE : public Gwen::Controls::DockBase
 
 		Gwen::Controls::MenuStrip*  m_menu;
 
-		std::map<std::string, Styling*> languages;
-		std::map<std::string, Styling*> extensions;
-
-		
 		std::vector<Gwen::Controls::TextBoxCode::breakpoint> breakpoints;
 
 		std::vector<std::pair<Gwen::Controls::TextBoxCode*, Gwen::Controls::TabButton*>> open_files;

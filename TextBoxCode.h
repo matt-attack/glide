@@ -8,14 +8,11 @@
 #include "Gwen/Controls/Label.h"
 #include "Gwen/Controls/ScrollControl.h"
 
+#include "language_support.h"
+
 //todo implement basically this with a ui interface https://msdn.microsoft.com/en-us/library/jj620914.aspx?f=255&MSPPError=-2147217396
 
-struct Styling
-{
-	std::string language;
 
-	std::map<WCHAR, std::vector<std::wstring>> keywords;
-};
 
 namespace Gwen
 {

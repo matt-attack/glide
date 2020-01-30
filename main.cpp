@@ -28,6 +28,8 @@
 // Program starts here
 //
 
+#include "language_support.h"
+
 Gwen::Skin::TexturedBase* skin = 0;
 std::vector<Gwen::Controls::WindowCanvas*> canvases;
 
@@ -64,6 +66,9 @@ std::string executable_path(const char *argv0)
 
 int main(int argc, char** args)
 {
+	// Setup details about each language for parsing and color coding
+	InitializeLanguages();
+
 	//Gwen::Renderer::DirectX9* renderer = new Gwen::Renderer::DirectX9(0);
 	Gwen::Renderer::Direct2D* renderer = new Gwen::Renderer::Direct2D();
 	//Gwen::Renderer::OpenGL_DebugFont* renderer = new Gwen::Renderer::OpenGL_DebugFont();

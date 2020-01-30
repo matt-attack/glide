@@ -39,7 +39,7 @@ configuration "Debug"
 if ( os.get() == "windows" ) then
 				  
 	DefineProject( "IDE",
-                  { "../main.cpp", "../IDE.cpp", "../TextBoxCode.cpp" },
+                  { "../main.cpp", "../IDE.cpp", "../TextBoxCode.cpp", "../language_support.cpp" },
                   { "GWEN-Renderer-OpenGL_DebugFont", "gwen_static", "GWEN-Renderer-Direct2D", "d2d1"},
                   { "GWEND-Renderer-OpenGL_DebugFontd", "gwen_staticd", "GWEND-Renderer-Direct2Dd", "d2d1"})
 	includedirs { "$(DXSDK_DIR)/Include" }
